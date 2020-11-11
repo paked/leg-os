@@ -19,7 +19,7 @@
 .word	_ebss
 
 .equ  BootRAM,        0xF1E0F85F
-/**
+/*
  * @brief  This is the code that gets called when the processor first
  *          starts execution following a reset event. Only the absolutely
  *          necessary set is performed, after which the application
@@ -68,7 +68,11 @@ bcc	FillZerobss
 // bl __libc_init_array
 /* Call the application's entry point.*/
 // bl	main
+bl kernel_main
 
+loop:
+  nop
+  b loop
 LoopForever:
 nop
 b LoopForever
