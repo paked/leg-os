@@ -92,8 +92,8 @@ void kernel_main()
     SET_BIT(RCC_APB2ENR, 14)
 
     // set tx word length to 8 bits
-    CLEAR_BIT(USART_CR1, 12)
-    CLEAR_BIT(USART_CR1, 28)
+    // CLEAR_BIT(USART_CR1, 12)
+    // CLEAR_BIT(USART_CR1, 28)
 
     // set BRR to 9600 baud. default value for BRR is 0 so we can hack it and
     // just or 5000 in.
@@ -117,9 +117,10 @@ void kernel_main()
 
         // check if finished sending (check if TC=1)
         while (true) {
+            // zero is false
+            // 1 is true
             uint32_t tc = READ(USART_ISR) & (1 << 6);
-            tc = tc >> 6;
-            if (tc == 1) {
+            if (tc) {
                 break;
             }
         }
