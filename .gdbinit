@@ -5,3 +5,5 @@ load kernel.elf
 monitor reset
 
 tbreak kernel_main
+
+layout src
