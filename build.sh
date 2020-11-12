@@ -1,6 +1,6 @@
 PREFIX=arm-none-eabi
 
-CFLAGS="-mcpu=cortex-m4 -mthumb -Wall -O2 -ggdb"
+CFLAGS="-mcpu=cortex-m4 -mthumb -Wall -O0 -ggdb"
 
 CC=$PREFIX-gcc
 LD=$PREFIX-ld
