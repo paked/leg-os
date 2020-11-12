@@ -8,7 +8,19 @@
 #define SET_BIT(reg, i) *(volatile uint32_t *)reg |= 1 << i;
 #define CLEAR_BIT(reg, i) *(volatile uint32_t *)reg &= ~(1 << i);
 
-// #define WRITE_BITS(reg, start, len, data) *(volatile uint32_t *)reg |= data << i;
+void copy_bits(uint32_t reg, uint32_t start, uint32_t size, uint32_t data)
+{
+    volatile uint32_t *reg_vol = (uint32_t *)reg;
+    uint32_t cur_val = *reg_vol;
+    
+    uint32_t mask = ~(~0x0 << (32 - start - size) >> (32 - start) << size);
+    cur_val &= mask;
+    
+    data = data << start;
+    cur_val |= data;
+
+    *reg_vol = cur_val;
+}
 
 enum
 {
@@ -44,13 +56,8 @@ void kernel_main()
     CLEAR_BIT(GPIOB_MODER, 5);
     SET_BIT(GPIOB_MODER, 4);
 
-    // 11 = 8 + 2 + 1 = 1011
     // set system clock to 80mHZ!!!
-    // SET_BIT(RCC_CFGR, 0)
-    SET_BIT(RCC_CR, 4)
-    SET_BIT(RCC_CR, 5)
-    CLEAR_BIT(RCC_CR, 6)
-    SET_BIT(RCC_CR, 7)
+    copy_bits(RCC_CR, 4, 4, 11);
 
     SET_BIT(RCC_CR, 3)
 
@@ -61,14 +68,8 @@ void kernel_main()
         {
             asm volatile("nop");
         }
-        asm volatile("nop");
-        asm volatile("nop");
-        asm volatile("nop");
-        asm volatile("nop");
-        asm volatile("nop");
-        asm volatile("nop");
 
-        if (led = !led)
+        if ((led = !led))
         {
             SET_BIT(GPIOB_ODR, 2);
         }
