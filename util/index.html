@@ -1,0 +1,24 @@
+<script>
+    function table(e) {
+        let input = String(e.target.value);
+        let arr = input.split("");
+        var tbl = document.createElement('table');
+        var tbdy = document.createElement('tbody');
+        var index = document.createElement('tr');
+        var value = document.createElement('tr');
+        for (let i = 0; i < arr.length; i++) {
+            var td = document.createElement('td');
+            td.appendChild(document.createTextNode(arr.length - i - 1));
+            index.appendChild(td)
+            var td = document.createElement('td');
+            td.appendChild(document.createTextNode(arr[i]));
+            value.appendChild(td);
+        }
+        tbdy.appendChild(index)
+        tbdy.appendChild(value);
+        tbl.appendChild(tbdy);
+        var body = document.getElementsByTagName('body')[0];
+        body.appendChild(tbl)
+    }
+</script>
+<input onchange="table(event)">
