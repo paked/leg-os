@@ -1,6 +1,6 @@
 PREFIX=arm-none-eabi
 
-CFLAGS=-mcpu=cortex-m4 -mthumb -Wall -Werror -O0 -ggdb
+CFLAGS=-mcpu=cortex-m4 -mthumb -Wall -Werror -O0 -gdwarf-4 -g3 -Ilib
 LINKER_FLAGS=-T link.ld
 
 CC=$(PREFIX)-gcc

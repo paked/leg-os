@@ -2,225 +2,73 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-#define WRITE(reg, data) *(volatile uint32_t *)reg = data
-#define READ(reg) *(volatile uint32_t *)reg
+#include "stm32l476xx.h"
 
-#define SET_BIT(reg, i) *(volatile uint32_t *)reg |= 1 << i;
-#define CLEAR_BIT(reg, i) *(volatile uint32_t *)reg &= ~(1 << i);
+void kernel_main(void) {
+    FLASH->ACR &= ~FLASH_ACR_LATENCY_Msk;
+    FLASH->ACR |= FLASH_ACR_LATENCY_2WS;
 
-void copy_bits(uint32_t reg, uint32_t start, uint32_t size, uint32_t data)
-{
-    volatile uint32_t *reg_vol = (uint32_t *)reg;
-    uint32_t cur_val = *reg_vol;
+    while ((FLASH->ACR & FLASH_ACR_LATENCY_Msk) != FLASH_ACR_LATENCY_2WS);
 
-    uint32_t mask = ~(~0x0 << (32 - start - size) >> (32 - start) << size);
-    cur_val &= mask;
+    RCC->CR &= ~RCC_CR_MSIRANGE_Msk;
+    RCC->CR |= RCC_CR_MSIRANGE_11;
 
-    data = data << start;
-    cur_val |= data;
+    RCC->CR |= RCC_CR_MSIRGSEL;
 
-    *reg_vol = cur_val;
-}
+    while ((RCC->CR & RCC_CR_MSIRDY) != RCC_CR_MSIRDY);
 
-enum
-{
-    RCC_BASE = 0x40021000,
-    RCC_AHB2ENR = RCC_BASE + 0x4C,
-    RCC_APB2ENR = RCC_BASE + 0x60,
-    RCC_APB1ENR1 = RCC_BASE + 0x58,
-    RCC_CFGR = RCC_BASE + 0x08,
-    RCC_CR = RCC_BASE + 0,
-    RCC_CCIPR = RCC_BASE + 0x88,
-    RCC_CSR = RCC_BASE + 0x94,
+    // enable port D (for usart rx/tx)
+    // enable port b (for red LED)
+    RCC->AHB2ENR |= RCC_AHB2ENR_GPIOBEN | RCC_AHB2ENR_GPIODEN;
 
-    GPIOx_MODER_OFFS = 0x0,
-    GPIOx_ODR_OFFS = 0x14,
-    GPIOx_OSPEEDR_OFFS = 0x08,
-    GPIOx_PUPDR_OFFS = 0x0C,
+    RCC->APB1ENR1 |= RCC_APB1ENR1_USART2EN;
+
+    // enable alternate mode 7 for pin 5 and pin 6 of port D
+    GPIOD->AFR[0] |= (7 << GPIO_AFRL_AFSEL5_Pos) | (7 << GPIO_AFRL_AFSEL6_Pos);
+
+    // set pins 5 and 6 to alternate mode (10)
+    GPIOD->MODER &= ~GPIO_MODER_MODE5 | ~GPIO_MODER_MODE6;
+    GPIOD->MODER |= GPIO_MODER_MODE5_1 | GPIO_MODER_MODE6_1;
+
+    // set mode for red led (pin 2) to general purpose output (01)
+    GPIOB->MODER &= ~GPIO_MODER_MODE2;
+    GPIOB->MODER |= GPIO_MODER_MODE2_0;
 
     /*
-    GPIOA_BASE = 0x48000000,
-    GPIOA_MODER = GPIOA_BASE + GPIOx_MODER_OFFS,
-    GPIOA_OSPEEDR = GPIOA_BASE + GPIOx_OSPEEDR_OFFS,
-    GPIOA_AFRL = GPIOA_BASE + 0x20,
-    GPIOA_PUPDR = GPIOA_BASE + GPIOx_PUPDR_OFFS,
-    */
-
-    GPIOD_BASE = 0x48000C00,
-    GPIOD_MODER = GPIOD_BASE + GPIOx_MODER_OFFS,
-    GPIOD_OSPEEDR = GPIOD_BASE + GPIOx_OSPEEDR_OFFS,
-    GPIOD_AFRL = GPIOD_BASE + 0x20,
-    GPIOD_PUPDR = GPIOD_BASE + GPIOx_PUPDR_OFFS,
-
-    GPIOB_BASE = 0x48000400,
-
-    GPIOB_MODER = GPIOB_BASE + GPIOx_MODER_OFFS,
-    GPIOB_ODR = GPIOB_BASE + GPIOx_ODR_OFFS,
-
-    USART2_BASE = 0x40004400,
-    USART2_CR1 = USART2_BASE + 0x0,
-    USART2_CR2 = USART2_BASE + 0x4,
-    USART2_BRR = USART2_BASE + 0x0C,
-    USART2_ICR = USART2_BASE + 0x20,
-    USART2_TDR = USART2_BASE + 0x28,
-    USART2_ISR = USART2_BASE + 0x1C,
-    USART2_RDR = USART2_BASE + 0x24,
-
-    FLASH_BASE = 0x40022000,
-    FLASH_ACR = FLASH_BASE + 0x0,
-};
-
-void kernel_main()
-{
-
-    // set system clock to 48MHZ!!!
-
-    // update flash latency to correct values (to prevent flash reading
-    // fuckery)
-    CLEAR_BIT(FLASH_ACR, 0);
-    SET_BIT(FLASH_ACR, 1);
-    CLEAR_BIT(FLASH_ACR, 2);
-
-    // first 3 bytes == 0b111
-    while ((READ(FLASH_ACR) & 7) != 2)
-        ;
-
-    // set msi to mode 11 (48MHZ)
-    // copy_bits(RCC_CR, 4, 4, 11);
-    SET_BIT(RCC_CR, 4)
-    SET_BIT(RCC_CR, 5)
-    CLEAR_BIT(RCC_CR, 6)
-    SET_BIT(RCC_CR, 7)
-    // save changes to MSI clock
-    SET_BIT(RCC_CR, 3)
-
-    SET_BIT(RCC_CR, 0); // make sure MSI is on
-
-    while (!(READ(RCC_CR) & (1 << 1)))
-        ;
-
-    // enable clock for Port D (for usart rx/tx)
-    // enable clock for Port B (for red LED)
-    WRITE(RCC_AHB2ENR, READ(RCC_AHB2ENR) | 0b1010);
-
-    // enable clock for USART2
-    SET_BIT(RCC_APB1ENR1, 17);
-
-    /*
-    Peripheral alternate function:
-    -  Connect the I/O to the desired AFx in one of the GPIOx_AFRL or GPIOx_AFRH
-       register.
-    –  Select the type, pull-up/pull-down and output speed via the GPIOx_OTYPER,
-       GPIOx_PUPDR and GPIOx_OSPEEDER registers, respectively.
-    –  Configure the desired I/O as an alternate function in the GPIOx_MODER register.
-    */
-
-    // TX: PD5
-    // RX: PD6
-    // enable alternates
-    WRITE(GPIOD_AFRL, (7 << 20) | (7 << 24)); // select AF7 for PD5 and PD6
-
-    // PD5 - tx
-    CLEAR_BIT(GPIOD_MODER, 10);
-    SET_BIT(GPIOD_MODER, 11);
-    // PD6 - rx
-    CLEAR_BIT(GPIOD_MODER, 12);
-    SET_BIT(GPIOD_MODER, 13);
-
-    // set mode for red LED on pin 2 port B (01 for general output purpose)
-    CLEAR_BIT(GPIOB_MODER, 5);
-    SET_BIT(GPIOB_MODER, 4);
-
-    // set BRR to 9600 baud. default value for BRR is 0 so we can hack it and
-    // just or 5000 in.
-    WRITE(USART2_BRR, READ(USART2_BRR) | 5000);
-
-    // program the amount of stop bits in USART_CR2 the default is 1 stop bit,
-    // i don't see a problem with that so we can leave it.
-
-    // set TE bit
-    SET_BIT(USART2_CR1, 3);
-
-    // set RE bit
-    SET_BIT(USART2_CR1, 2);
-
-    // enable UE -- start usart-ing
-    SET_BIT(USART2_CR1, 0);
-
-    while (true)
-    {
-        uint32_t isr = READ(USART2_ISR);
-        uint32_t rx = isr & (1 << 5);
-        if ((isr & 2) == 2)
-        {
-            SET_BIT(GPIOB_ODR, 2);
-            SET_BIT(USART2_ICR, 1);
-        }
-        else
-        {
-            CLEAR_BIT(GPIOB_ODR, 2);
-        }
-
-        if (rx)
-        {
-            volatile uint32_t rdr = READ(USART2_RDR);
-
-            uint32_t tdr = READ(USART2_TDR);
-            tdr &= ~0xFF;
-            tdr |= rdr & 0xFF;
-
-            WRITE(USART2_TDR, tdr);
-
-            // check if finished sending (check if TC=1)
-            while (true)
-            {
-                //    zero is false
-                //      1 is true
-                uint32_t tc = READ(USART2_ISR) & (1 << 6);
-                if (tc)
-                {
-                    break;
-                }
-            }
-        }
-    }
-
-    /*
-    int i = 0;
+    int led = 0;
     while (true) {
-        if (i > 26) {
-            i = 0;
+        for (int i = 0; i < 1000000; i++) {
+            asm("nop");
         }
 
-        // transmit stuff
-        uint32_t tdr = READ(USART2_TDR);
-        tdr &= ~0xFF;
-        tdr |= 'A' + i;
-        WRITE(USART2_TDR, tdr);
-
-        // check if finished sending (check if TC=1)
-        while (true) {
-            //    zero is false
-            //      1 is true
-            uint32_t isr = READ(USART2_ISR);
-            uint32_t tc = isr & (1 << 6);
-            if ((isr & 2) == 2) {
-                SET_BIT(GPIOB_ODR, 2);
-
-                SET_BIT(USART2_ICR, 1); // clear framing error
-            } else {
-                CLEAR_BIT(GPIOB_ODR, 2);
-            }
-
-            if (tc) {
-                break;
-            }
+        if (led) {
+            GPIOB->ODR |= GPIO_ODR_OD2;
+        } else {
+            GPIOB->ODR &= ~GPIO_ODR_OD2;
         }
 
-        i += 1;
+        led = !led;
     }
     */
 
-    while (true)
-        ;
+    // 5000 happens to be the number we need to reach 9600 baud.
+    // probably should be a bit cleverer here, but oh well---we'll
+    // just OR it in.
+    USART2->BRR |= 5000;
+
+    USART2->CR1 |= USART_CR1_TE | USART_CR1_RE;
+    USART2->CR1 |= USART_CR1_UE;
+
+    while (true) {
+        if (!(USART2->ISR & USART_ISR_RXNE)) {
+            continue;
+        }
+
+        USART2->TDR = (USART2->TDR & ~USART_TDR_TDR_Msk) | (USART2->RDR & 0xFF);
+
+
+        while (!(USART2->ISR & USART_ISR_TC));
+    }
+
+    while (true);
 }
