@@ -38,11 +38,19 @@ enum
     GPIOx_OSPEEDR_OFFS = 0x08,
     GPIOx_PUPDR_OFFS = 0x0C,
 
+    /*
     GPIOA_BASE = 0x48000000,
     GPIOA_MODER = GPIOA_BASE + GPIOx_MODER_OFFS,
     GPIOA_OSPEEDR = GPIOA_BASE + GPIOx_OSPEEDR_OFFS,
     GPIOA_AFRL = GPIOA_BASE + 0x20,
     GPIOA_PUPDR = GPIOA_BASE + GPIOx_PUPDR_OFFS,
+    */
+
+    GPIOD_BASE = 0x48000C00,
+    GPIOD_MODER = GPIOD_BASE + GPIOx_MODER_OFFS,
+    GPIOD_OSPEEDR = GPIOD_BASE + GPIOx_OSPEEDR_OFFS,
+    GPIOD_AFRL = GPIOD_BASE + 0x20,
+    GPIOD_PUPDR = GPIOD_BASE + GPIOx_PUPDR_OFFS,
 
     GPIOB_BASE = 0x48000400,
 
@@ -91,13 +99,9 @@ void kernel_main()
     while (!(READ(RCC_CR) & (1 << 1)))
         ;
 
-    // enable clock for Port A
-    // enable clock for Port B
-    WRITE(RCC_AHB2ENR, READ(RCC_AHB2ENR) | 0b11);
-
-    // use the system clock for usart 2
-    // CLEAR_BIT(RCC_CCIPR, 3);
-    // CLEAR_BIT(RCC_CCIPR, 2);
+    // enable clock for Port D (for usart rx/tx)
+    // enable clock for Port B (for red LED)
+    WRITE(RCC_AHB2ENR, READ(RCC_AHB2ENR) | 0b1010);
 
     // enable clock for USART2
     SET_BIT(RCC_APB1ENR1, 17);
@@ -111,50 +115,21 @@ void kernel_main()
     –  Configure the desired I/O as an alternate function in the GPIOx_MODER register.
     */
 
-    WRITE(GPIOA_AFRL, (7 << 8) | (7 << 12));
+    // TX: PD5
+    // RX: PD6
+    // enable alternates
+    WRITE(GPIOD_AFRL, (7 << 20) | (7 << 24)); // select AF7 for PD5 and PD6
 
-    // output speed (?) = very high
-    SET_BIT(GPIOA_OSPEEDR, 6)
-    SET_BIT(GPIOA_OSPEEDR, 7)
+    // PD5 - tx
+    CLEAR_BIT(GPIOD_MODER, 10);
+    SET_BIT(GPIOD_MODER, 11);
+    // PD6 - rx
+    CLEAR_BIT(GPIOD_MODER, 12);
+    SET_BIT(GPIOD_MODER, 13);
 
-    SET_BIT(GPIOA_PUPDR, 6);
-
-    // enabling alternate 7 for port A pins 2 and 3
-    // copy_bits(GPIOA_AFRL, 8, 4, 7);
-    // copy_bits(GPIOA_AFRL, 12, 4, 7);
-    // PA2 - tx
-    CLEAR_BIT(GPIOA_MODER, 2);
-    SET_BIT(GPIOA_MODER, 3);
-    // PA3 - rx
-    SET_BIT(GPIOA_MODER, 4);
-    CLEAR_BIT(GPIOA_MODER, 5);
-
-    // set mode for pin 2 (01 for general output purpose)
+    // set mode for red LED on pin 2 port B (01 for general output purpose)
     CLEAR_BIT(GPIOB_MODER, 5);
     SET_BIT(GPIOB_MODER, 4);
-
-    /*
-    bool led = true;
-    while (true)
-    {
-        for (uint32_t i = 0; i < 400000; i++)
-        {
-            asm volatile("nop");
-        }
-
-        if ((led = !led))
-        {
-            SET_BIT(GPIOB_ODR, 2);
-        }
-        else
-        {
-            CLEAR_BIT(GPIOB_ODR, 2);
-        }
-    }
-    */
-    // set tx word length to 8 bits
-    // CLEAR_BIT(USART_CR1, 12)
-    // CLEAR_BIT(USART_CR1, 28)
 
     // set BRR to 9600 baud. default value for BRR is 0 so we can hack it and
     // just or 5000 in.
@@ -165,9 +140,6 @@ void kernel_main()
 
     // set TE bit
     SET_BIT(USART2_CR1, 3);
-
-    // enable auto baud
-    // SET_BIT(USART2_CR2, 20);
 
     // set RE bit
     SET_BIT(USART2_CR1, 2);
@@ -182,23 +154,20 @@ void kernel_main()
         if ((isr & 2) == 2)
         {
             SET_BIT(GPIOB_ODR, 2);
-            asm volatile("nop");
-            SET_BIT(USART2_ICR, 1); // clear framing error
+            SET_BIT(USART2_ICR, 1);
         }
         else
         {
             CLEAR_BIT(GPIOB_ODR, 2);
         }
 
-        // asm volatile("dmb");
         if (rx)
         {
             volatile uint32_t rdr = READ(USART2_RDR);
-            // SET_BIT(GPIOB_ODR, 2);
 
             uint32_t tdr = READ(USART2_TDR);
             tdr &= ~0xFF;
-            tdr |= rdr & '0xFF';
+            tdr |= rdr & 0xFF;
 
             WRITE(USART2_TDR, tdr);
 
@@ -217,11 +186,16 @@ void kernel_main()
     }
 
     /*
+    int i = 0;
     while (true) {
+        if (i > 26) {
+            i = 0;
+        }
+
         // transmit stuff
         uint32_t tdr = READ(USART2_TDR);
         tdr &= ~0xFF;
-        tdr |= 'F';
+        tdr |= 'A' + i;
         WRITE(USART2_TDR, tdr);
 
         // check if finished sending (check if TC=1)
@@ -242,6 +216,8 @@ void kernel_main()
                 break;
             }
         }
+
+        i += 1;
     }
     */
 
