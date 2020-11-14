@@ -27,7 +27,8 @@ void kernel_main(void) {
     GPIOD->AFR[0] |= (7 << GPIO_AFRL_AFSEL5_Pos) | (7 << GPIO_AFRL_AFSEL6_Pos);
 
     // set pins 5 and 6 to alternate mode (10)
-    GPIOD->MODER &= ~GPIO_MODER_MODE5 | ~GPIO_MODER_MODE6;
+
+    GPIOD->MODER &= ~(GPIO_MODER_MODE5 | GPIO_MODER_MODE6);
     GPIOD->MODER |= GPIO_MODER_MODE5_1 | GPIO_MODER_MODE6_1;
 
     // set mode for red led (pin 2) to general purpose output (01)
