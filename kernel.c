@@ -30,15 +30,19 @@ enum
     RCC_APB1ENR1 = RCC_BASE + 0x58,
     RCC_CFGR = RCC_BASE + 0x08,
     RCC_CR = RCC_BASE + 0,
-    RCC_CCPIR = RCC_BASE + 0x88,
+    RCC_CCIPR = RCC_BASE + 0x88,
     RCC_CSR = RCC_BASE + 0x94,
 
     GPIOx_MODER_OFFS = 0x0,
     GPIOx_ODR_OFFS = 0x14,
+    GPIOx_OSPEEDR_OFFS = 0x08,
+    GPIOx_PUPDR_OFFS = 0x0C,
 
     GPIOA_BASE = 0x48000000,
     GPIOA_MODER = GPIOA_BASE + GPIOx_MODER_OFFS,
+    GPIOA_OSPEEDR = GPIOA_BASE + GPIOx_OSPEEDR_OFFS,
     GPIOA_AFRL = GPIOA_BASE + 0x20,
+    GPIOA_PUPDR = GPIOA_BASE + GPIOx_PUPDR_OFFS,
 
     GPIOB_BASE = 0x48000400,
 
@@ -55,7 +59,7 @@ enum
     USART2_RDR = USART2_BASE + 0x24,
 
     FLASH_BASE = 0x40022000,
-    FLASH_ACR = FLASH_BASE + 0,
+    FLASH_ACR = FLASH_BASE + 0x0,
 };
 
 void kernel_main()
@@ -70,7 +74,8 @@ void kernel_main()
     CLEAR_BIT(FLASH_ACR, 2);
 
     // first 3 bytes == 0b111
-    while ((READ(FLASH_ACR) & 7) != 2);
+    while ((READ(FLASH_ACR) & 7) != 2)
+        ;
 
     // set msi to mode 11 (48MHZ)
     // copy_bits(RCC_CR, 4, 4, 11);
@@ -83,37 +88,48 @@ void kernel_main()
 
     SET_BIT(RCC_CR, 0); // make sure MSI is on
 
-    while (!(READ(RCC_CR) & (1 << 1)));
-
-    //
-    // turn on the red LED on pin PB2 (port B, pin 2)
-    //
+    while (!(READ(RCC_CR) & (1 << 1)))
+        ;
 
     // enable clock for Port A
     // enable clock for Port B
-    WRITE(RCC_AHB2ENR, READ(RCC_AHB2ENR)|1|2);
-    // SET_BIT(RCC_AHB2ENR, 1);
-    // SET_BIT(RCC_AHB2ENR, 0);
-    //
+    WRITE(RCC_AHB2ENR, READ(RCC_AHB2ENR) | 0b11);
+
     // use the system clock for usart 2
-    CLEAR_BIT(RCC_CCPIR, 3);
-    SET_BIT(RCC_CCPIR, 2);
+    // CLEAR_BIT(RCC_CCIPR, 3);
+    // CLEAR_BIT(RCC_CCIPR, 2);
 
     // enable clock for USART2
     SET_BIT(RCC_APB1ENR1, 17);
 
-    // enabling alternate 7 for port A pins 2 and 3
-    // copy_bits(GPIOA_AFRL, 8, 4, 7);
-    // copy_bits(GPIOA_AFRL, 12, 4, 7);
-    CLEAR_BIT(GPIOA_MODER, 2);
-    SET_BIT(GPIOA_MODER, 3);
-    CLEAR_BIT(GPIOA_MODER, 4);
-    SET_BIT(GPIOA_MODER, 5);
-
+    /*
+    Peripheral alternate function:
+    -  Connect the I/O to the desired AFx in one of the GPIOx_AFRL or GPIOx_AFRH
+       register.
+    –  Select the type, pull-up/pull-down and output speed via the GPIOx_OTYPER,
+       GPIOx_PUPDR and GPIOx_OSPEEDER registers, respectively.
+    –  Configure the desired I/O as an alternate function in the GPIOx_MODER register.
+    */
 
     WRITE(GPIOA_AFRL, (7 << 8) | (7 << 12));
 
-    // set mode for pin 2 (01 for general purpose)
+    // output speed (?) = very high
+    SET_BIT(GPIOA_OSPEEDR, 6)
+    SET_BIT(GPIOA_OSPEEDR, 7)
+
+    SET_BIT(GPIOA_PUPDR, 6);
+
+    // enabling alternate 7 for port A pins 2 and 3
+    // copy_bits(GPIOA_AFRL, 8, 4, 7);
+    // copy_bits(GPIOA_AFRL, 12, 4, 7);
+    // PA2 - tx
+    CLEAR_BIT(GPIOA_MODER, 2);
+    SET_BIT(GPIOA_MODER, 3);
+    // PA3 - rx
+    SET_BIT(GPIOA_MODER, 4);
+    CLEAR_BIT(GPIOA_MODER, 5);
+
+    // set mode for pin 2 (01 for general output purpose)
     CLEAR_BIT(GPIOB_MODER, 5);
     SET_BIT(GPIOB_MODER, 4);
 
@@ -136,11 +152,9 @@ void kernel_main()
         }
     }
     */
-
     // set tx word length to 8 bits
     // CLEAR_BIT(USART_CR1, 12)
     // CLEAR_BIT(USART_CR1, 28)
-
 
     // set BRR to 9600 baud. default value for BRR is 0 so we can hack it and
     // just or 5000 in.
@@ -165,13 +179,17 @@ void kernel_main()
     {
         uint32_t isr = READ(USART2_ISR);
         uint32_t rx = isr & (1 << 5);
-        if ((isr & 2) == 2) {
+        if ((isr & 2) == 2)
+        {
             SET_BIT(GPIOB_ODR, 2);
-
+            asm volatile("nop");
             SET_BIT(USART2_ICR, 1); // clear framing error
-        } else {
+        }
+        else
+        {
             CLEAR_BIT(GPIOB_ODR, 2);
         }
+
         // asm volatile("dmb");
         if (rx)
         {
@@ -180,16 +198,18 @@ void kernel_main()
 
             uint32_t tdr = READ(USART2_TDR);
             tdr &= ~0xFF;
-            tdr |= rdr & 0xFF;
+            tdr |= rdr & '0xFF';
 
             WRITE(USART2_TDR, tdr);
 
             // check if finished sending (check if TC=1)
-            while (true) {
+            while (true)
+            {
                 //    zero is false
                 //      1 is true
                 uint32_t tc = READ(USART2_ISR) & (1 << 6);
-                if (tc) {
+                if (tc)
+                {
                     break;
                 }
             }
