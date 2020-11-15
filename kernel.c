@@ -11,9 +11,7 @@ void usart_send(char *data, uint32_t size) {
     for (uint32_t i = 0; i < size; i++) {
         while (!(USART2->ISR & USART_ISR_TC)) {}
 
-        USART2->TDR |= (USART2->TDR & ~USART_TDR_TDR_Msk) | (data[i]);
-
-        while (!(USART2->ISR & USART_ISR_TC)) {}
+        USART2->TDR = (USART2->TDR & ~USART_TDR_TDR_Msk) | (uint32_t)(data[i]);
     }
 }
 
@@ -79,10 +77,6 @@ void kernel_main(void) {
         }
         char recv = (char)(USART2->RDR & 0xFF);
         usart_send(&recv, 1);
-
-        // USART2->TDR = (USART2->TDR & ~USART_TDR_TDR_Msk) | (USART2->RDR & 0xFF);
-
-        // while (!(USART2->ISR & USART_ISR_TC)) {}
     }
 
     while (true) {}
