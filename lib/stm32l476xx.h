@@ -1,3 +1,4 @@
+// clang-format off
 /**
   ******************************************************************************
   * @file    stm32l476xx.h
@@ -7,7 +8,7 @@
   *          This file contains:
   *           - Data structures and the address mapping for all peripherals
   *           - Peripheral's registers declarations and bits definition
-  *           - Macros to access peripheral’s registers hardware
+  *           - Macros to access peripheralï¿½s registers hardware
   *
   ******************************************************************************
   * @attention
@@ -163,20 +164,9 @@ typedef enum
   * @}
   */
 
-#ifdef __cplusplus
-  #define   __I     volatile             /*!< Defines 'read only' permissions */
-#else
-  #define   __I     volatile const       /*!< Defines 'read only' permissions */
-#endif
-#define     __O     volatile             /*!< Defines 'write only' permissions */
-#define     __IO    volatile             /*!< Defines 'read / write' permissions */
 
-/* following defines should be used for structure members */
-#define     __IM     volatile const      /*! Defines 'read only' structure member permissions */
-#define     __OM     volatile            /*! Defines 'write only' structure member permissions */
-#define     __IOM    volatile            /*! Defines 'read / write' structure member permissions */
 
-// #include "core_cm4.h"             /* Cortex-M4 processor and core peripherals */
+#include "core_cm4.h"             /* Cortex-M4 processor and core peripherals */
 // #include "system_stm32l4xx.h"
 #include <stdint.h>
 

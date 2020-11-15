@@ -2,7 +2,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "printf.c"
 #include "stm32l476xx.h"
+
+// #define TEST // define if testing usart printing
 
 #define USART_TTY USART2
 
@@ -11,10 +14,18 @@ void usart_send(char *data, uint32_t size) {
     // will need a lock on the usart port
 
     for (uint32_t i = 0; i < size; i++) {
-        while (!(USART_TTY->ISR & USART_ISR_TC)) {}
-
-        USART_TTY->TDR = (USART_TTY->TDR & ~USART_TDR_TDR_Msk) | (uint32_t)(data[i]);
+        putchar(data[i]);
     }
+}
+
+int putchar(int c) {
+    if (c == '\n') {
+        putchar('\r');
+    }
+    while (!(USART_TTY->ISR & USART_ISR_TC)) {}
+
+    USART_TTY->TDR = (USART_TTY->TDR & ~USART_TDR_TDR_Msk) | (uint32_t)(c);
+    return 0;
 }
 
 void kernel_main(void) {
@@ -29,6 +40,10 @@ void kernel_main(void) {
     RCC->CR |= RCC_CR_MSIRGSEL;
 
     while ((RCC->CR & RCC_CR_MSIRDY) != RCC_CR_MSIRDY) {}
+
+    // interrupts
+    // direct lines don't require EXTI configuration
+    NVIC->ISER[1] |= 1 << (38 - 32);
 
     // enable port D (for usart rx/tx)
     // enable port b (for red LED)
@@ -58,7 +73,7 @@ void kernel_main(void) {
         if (led) {
             GPIOB->ODR |= GPIO_ODR_OD2;
         } else {
-            GPIOB->ODR &= ~GPIO_ODR_OD2;
+            GPIOB->ODR &= ~GPdoubleIO_ODR_OD2;
         }
 
         led = !led;
@@ -70,16 +85,23 @@ void kernel_main(void) {
     // just OR it in.
     USART_TTY->BRR |= 5000;
 
-    USART_TTY->CR1 |= USART_CR1_TE | USART_CR1_RE;
+    USART_TTY->CR1 |= USART_CR1_TE | USART_CR1_RE | USART_CR1_RXNEIE;
     USART_TTY->CR1 |= USART_CR1_UE;
 
-    while (true) {
-        if (!(USART_TTY->ISR & USART_ISR_RXNE)) {
-            continue;
-        }
-        char recv = (char)(USART_TTY->RDR & 0xFF);
-        usart_send(&recv, 1);
-    }
+#ifdef TEST
+    print_test();
+#endif
 
-    while (true) {}
+    while (true) {
+        // char *msg = "hello world!\n";
+        // usart_send(msg, 13);
+        for (int i = 0; i < 1000000; i++) {
+            asm("nop");
+        }
+    }
+}
+
+void USART2_IRQHandler(void) {
+    char recv = (char)(USART_TTY->RDR & 0xFF);
+    usart_send(&recv, 1);
 }
