@@ -5,9 +5,25 @@
 #include "printf.c"
 #include "stm32l476xx.h"
 
-// #define TEST // define if testing usart printing
+#define TEST // define if testing usart printing
+// #undef TEST
 
 #define USART_TTY USART2
+
+#define DUMP_REGS                                        \
+    uint32_t *stack_pointer;                             \
+    uint32_t flags_reg;                                  \
+    asm volatile("push {r0-r12,lr}\n\tmov %[result], sp" \
+                 : [ result ] "=r"(stack_pointer));      \
+    asm volatile("mrs %[result], APSR"                   \
+                 : [ result ] "=r"(flags_reg));          \
+    printf("General Register Dump\n");                   \
+    for (uint32_t i = 0; i < 13; i++) {                  \
+        printf("r%d:\t0x%x\n", i, stack_pointer[i]);     \
+    }                                                    \
+    printf("lr:\t0x%x\n", stack_pointer[13]);            \
+    printf("sp:\t0x%x\n", stack_pointer);                \
+    printf("flags:\t0x%x\n", flags_reg);
 
 // Blocking USART send
 void usart_send(char *data, uint32_t size) {
@@ -18,7 +34,7 @@ void usart_send(char *data, uint32_t size) {
 
 int putchar(int c) {
     // will need a lock on the usart port
-    
+
     if (c == '\n') {
         putchar('\r');
     }
@@ -29,6 +45,7 @@ int putchar(int c) {
 }
 
 void kernel_main(void) {
+
     FLASH->ACR &= ~FLASH_ACR_LATENCY_Msk;
     FLASH->ACR |= FLASH_ACR_LATENCY_2WS;
 
@@ -89,19 +106,20 @@ void kernel_main(void) {
     USART_TTY->CR1 |= USART_CR1_UE;
 
 #ifdef TEST
+    void HardFault_Handler(void);
     print_test();
+    HardFault_Handler();
 #endif
 
-    while (true) {
-        // char *msg = "hello world!\n";
-        // usart_send(msg, 13);
-        for (int i = 0; i < 1000000; i++) {
-            asm("nop");
-        }
-    }
+    while (true) {}
 }
 
 void USART2_IRQHandler(void) {
     char recv = (char)(USART_TTY->RDR & 0xFF);
     usart_send(&recv, 1);
+}
+
+void HardFault_Handler(void) {
+    DUMP_REGS;
+    printf("Hard Fault - Possibly Unrecoverable :(\n");
 }
