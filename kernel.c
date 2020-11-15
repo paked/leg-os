@@ -4,14 +4,16 @@
 
 #include "stm32l476xx.h"
 
+#define USART_TTY USART2
+
 // Blocking USART send
 void usart_send(char *data, uint32_t size) {
     // will need a lock on the usart port
 
     for (uint32_t i = 0; i < size; i++) {
-        while (!(USART2->ISR & USART_ISR_TC)) {}
+        while (!(USART_TTY->ISR & USART_ISR_TC)) {}
 
-        USART2->TDR = (USART2->TDR & ~USART_TDR_TDR_Msk) | (uint32_t)(data[i]);
+        USART_TTY->TDR = (USART_TTY->TDR & ~USART_TDR_TDR_Msk) | (uint32_t)(data[i]);
     }
 }
 
@@ -66,16 +68,16 @@ void kernel_main(void) {
     // 5000 happens to be the number we need to reach 9600 baud.
     // probably should be a bit cleverer here, but oh well---we'll
     // just OR it in.
-    USART2->BRR |= 5000;
+    USART_TTY->BRR |= 5000;
 
-    USART2->CR1 |= USART_CR1_TE | USART_CR1_RE;
-    USART2->CR1 |= USART_CR1_UE;
+    USART_TTY->CR1 |= USART_CR1_TE | USART_CR1_RE;
+    USART_TTY->CR1 |= USART_CR1_UE;
 
     while (true) {
-        if (!(USART2->ISR & USART_ISR_RXNE)) {
+        if (!(USART_TTY->ISR & USART_ISR_RXNE)) {
             continue;
         }
-        char recv = (char)(USART2->RDR & 0xFF);
+        char recv = (char)(USART_TTY->RDR & 0xFF);
         usart_send(&recv, 1);
     }
 
