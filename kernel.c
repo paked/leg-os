@@ -11,14 +11,14 @@
 
 // Blocking USART send
 void usart_send(char *data, uint32_t size) {
-    // will need a lock on the usart port
-
     for (uint32_t i = 0; i < size; i++) {
         putchar(data[i]);
     }
 }
 
 int putchar(int c) {
+    // will need a lock on the usart port
+    
     if (c == '\n') {
         putchar('\r');
     }

@@ -401,5 +401,3 @@ int print_test() {
     printf("sprintf: %s", buf);
     return 0;
 }
-#undef printf
-#undef sprintf
