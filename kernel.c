@@ -1,21 +1,34 @@
-#include <stdint.h>
-#include <stddef.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include "stm32l476xx.h"
+
+// Blocking USART send
+void usart_send(char *data, uint32_t size) {
+    // will need a lock on the usart port
+
+    for (uint32_t i = 0; i < size; i++) {
+        while (!(USART2->ISR & USART_ISR_TC)) {}
+
+        USART2->TDR |= (USART2->TDR & ~USART_TDR_TDR_Msk) | (data[i]);
+
+        while (!(USART2->ISR & USART_ISR_TC)) {}
+    }
+}
 
 void kernel_main(void) {
     FLASH->ACR &= ~FLASH_ACR_LATENCY_Msk;
     FLASH->ACR |= FLASH_ACR_LATENCY_2WS;
 
-    while ((FLASH->ACR & FLASH_ACR_LATENCY_Msk) != FLASH_ACR_LATENCY_2WS);
+    while ((FLASH->ACR & FLASH_ACR_LATENCY_Msk) != FLASH_ACR_LATENCY_2WS) {}
 
     RCC->CR &= ~RCC_CR_MSIRANGE_Msk;
     RCC->CR |= RCC_CR_MSIRANGE_11;
 
     RCC->CR |= RCC_CR_MSIRGSEL;
 
-    while ((RCC->CR & RCC_CR_MSIRDY) != RCC_CR_MSIRDY);
+    while ((RCC->CR & RCC_CR_MSIRDY) != RCC_CR_MSIRDY) {}
 
     // enable port D (for usart rx/tx)
     // enable port b (for red LED)
@@ -64,12 +77,13 @@ void kernel_main(void) {
         if (!(USART2->ISR & USART_ISR_RXNE)) {
             continue;
         }
+        char recv = (char)(USART2->RDR & 0xFF);
+        usart_send(&recv, 1);
 
-        USART2->TDR = (USART2->TDR & ~USART_TDR_TDR_Msk) | (USART2->RDR & 0xFF);
+        // USART2->TDR = (USART2->TDR & ~USART_TDR_TDR_Msk) | (USART2->RDR & 0xFF);
 
-
-        while (!(USART2->ISR & USART_ISR_TC));
+        // while (!(USART2->ISR & USART_ISR_TC)) {}
     }
 
-    while (true);
+    while (true) {}
 }

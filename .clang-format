@@ -1,0 +1,6 @@
+BasedOnStyle: LLVM
+UseTab: Never
+IndentWidth: 4
+AllowShortLoopsOnASingleLine: true
+AllowShortBlocksOnASingleLine: true
+ColumnLimit: 0
