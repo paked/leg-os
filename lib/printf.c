@@ -32,6 +32,9 @@
 #include <stdarg.h>
 #include <stddef.h>
 
+#define printf simple_printf
+#define sprintf simple_sprintf
+
 int putchar(int c);
 
 static void simple_outputchar(char **str, char c) {
@@ -344,8 +347,7 @@ int simple_sprintf(char *buf, char *fmt, ...) {
     return r;
 }
 
-#define printf simple_printf
-#define sprintf simple_sprintf
+#ifdef TEST
 
 int print_test() {
     static char shortstr[] = "Test";
@@ -401,3 +403,4 @@ int print_test() {
     printf("sprintf: %s", buf);
     return 0;
 }
+#endif

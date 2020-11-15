@@ -2,10 +2,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// #define TEST // define if testing usart printing
 #include "printf.c"
 #include "stm32l476xx.h"
 
-#define TEST // define if testing usart printing
 // #undef TEST
 
 #define USART_TTY USART2
@@ -24,6 +24,113 @@
     printf("lr:\t0x%x\n", stack_pointer[13]);            \
     printf("sp:\t0x%x\n", stack_pointer);                \
     printf("flags:\t0x%x\n", flags_reg);
+
+extern uint32_t end;
+
+#define HEAP_SIZE (96000 - 10000)
+
+// #define TEST // define if testing usart printing
+
+#define USART_TTY USART2
+
+void *memset(void* s, int c, size_t len) {
+    char* data = (char*) s;
+    for (size_t i = 0; i < len; i++) {
+        data[i] = c;
+    }
+
+    return data;
+}
+
+void *memcpy(void* dest, const void *src, size_t n) {
+    char *d = (char*) dest;
+    char *s = (char*) src;
+
+    for (size_t i = 0; i < n; i++) {
+        d[i] = s[i];
+    }
+
+    return dest;
+}
+
+struct page {
+    uint32_t i;
+    uint8_t is_allocated;
+
+    uint8_t reserved1; // padded to 8 bytes
+    uint16_t reserved2;
+};
+
+struct page *pages;
+uint32_t pages_count;
+char* heap_start;
+
+#define PAGE_SIZE 2048
+#define MEM_PER_PAGE (sizeof(struct page) + PAGE_SIZE)
+
+void mem_init() {
+    // get amount of pages we can fit in memory
+    pages_count = HEAP_SIZE/MEM_PER_PAGE;
+    pages = (struct page*) &end;
+
+    // clear page metadata to zero
+    memset(pages, 0, pages_count * sizeof(struct page));
+
+    // set up IDs for pages
+    for (uint32_t i = 0; i < pages_count; i++) {
+        pages[i].i = i;
+    }
+
+    heap_start = (char*) (pages + pages_count);
+}
+
+void mem_print_page_info() {
+    char preview[50];
+
+    printf("page metadata size: %d\n", sizeof(struct page));
+    printf("page size: %d\n", PAGE_SIZE);
+    printf("heap size: %d\n", HEAP_SIZE);
+    printf("memory per page: %d\n", MEM_PER_PAGE);
+    printf("amount of pages (including metadata) we can fit in memory: %d\n", HEAP_SIZE/MEM_PER_PAGE);
+
+    for (uint32_t i = 0; i < pages_count; i++) {
+        struct page* page = &pages[i];
+
+        printf("i=%d allocated: %s\n", page->i, page->is_allocated ? "T\0" : "F\0");
+        if (page->is_allocated) {
+            memcpy(preview, heap_start+(page->i*PAGE_SIZE), 46);
+            printf("%s\n", preview);
+        }
+    }
+}
+
+void *mem_get_page() {
+    for (uint32_t i = 0; i < pages_count; i++) {
+        struct page *page = &pages[i];
+
+        if (!page->is_allocated) {
+            page->is_allocated = true;
+
+            return heap_start + (page->i * PAGE_SIZE);
+        }
+    }
+
+    printf("ERROR: no pages left\n");
+
+    return 0;
+}
+
+void mem_free_page(void* p) {
+    uint32_t offs = (uint32_t) p - (uint32_t)heap_start;
+    if (offs % PAGE_SIZE != 0) {
+        printf("ERROR: trying to free a page which does not fall on a page boundary\n");
+
+        return;
+    }
+
+    struct page *page = &pages[offs / PAGE_SIZE];
+    page->is_allocated = false;
+}
 
 // Blocking USART send
 void usart_send(char *data, uint32_t size) {
@@ -58,6 +165,8 @@ void kernel_main(void) {
 
     while ((RCC->CR & RCC_CR_MSIRDY) != RCC_CR_MSIRDY) {}
 
+    mem_init();
+
     // interrupts
     // direct lines don't require EXTI configuration
     NVIC->ISER[1] |= 1 << (38 - 32);
@@ -80,23 +189,6 @@ void kernel_main(void) {
     GPIOB->MODER &= ~GPIO_MODER_MODE2;
     GPIOB->MODER |= GPIO_MODER_MODE2_0;
 
-    /*
-    int led = 0;
-    while (true) {
-        for (int i = 0; i < 1000000; i++) {
-            asm("nop");
-        }
-
-        if (led) {
-            GPIOB->ODR |= GPIO_ODR_OD2;
-        } else {
-            GPIOB->ODR &= ~GPdoubleIO_ODR_OD2;
-        }
-
-        led = !led;
-    }
-    */
-
     // 5000 happens to be the number we need to reach 9600 baud.
     // probably should be a bit cleverer here, but oh well---we'll
     // just OR it in.
@@ -111,7 +203,27 @@ void kernel_main(void) {
     HardFault_Handler();
 #endif
 
-    while (true) {}
+    char* msg = mem_get_page();
+
+    for (int i = 0; i < 999; i++) {
+        msg[i] = 'a' + i % 26;
+    }
+    msg[999] = '\0';
+
+    printf("%s\n", msg);
+
+    mem_print_page_info();
+
+    while (true) {
+        /*
+        // char *msg = "hello world!\n";
+        // usart_send(msg, 13);
+        printf("hello: %x\n", &end);
+        for (int i = 0; i < 1000000; i++) {
+            asm("nop");
+        }
+        */
+    }
 }
 
 void USART2_IRQHandler(void) {
