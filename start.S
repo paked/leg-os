@@ -495,11 +495,8 @@ g_pfnVectors:
 
 .type PendSV_Handler, %function
 PendSV_Handler:
-  push {r4-r11}
-
   mov r0, sp
-  sub sp, 4
-  str r0, [sp] // add sorta wrong sp to stack TODO(harrison): this can be done with a post decrement op
+  push {r0, r4-r11}
 
   mov r0, sp
 
@@ -507,9 +504,14 @@ PendSV_Handler:
   bl context_switch
   pop {lr}
 
-  add sp, 4 // remove sp from stack
-
+  ldr r1, [r0] // remember the value of sp to restore
+  add r0, #4
+  mov sp, r0
   pop {r4-r11}
+//  add r1, #4
+  mov sp, r1
+
+  // mov lr, 0xFFFFFFF9
 
   bx lr
 .size PendSV_Handler, .-PendSV_Handler

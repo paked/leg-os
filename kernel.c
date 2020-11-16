@@ -53,28 +53,8 @@ void *memcpy(void* dest, const void *src, size_t n) {
     return dest;
 }
 
-enum {
-    PROCESS_R0,
-    PROCESS_R1,
-    PROCESS_R2,
-    PROCESS_R3,
-    PROCESS_R4,
-    PROCESS_R5,
-    PROCESS_R6,
-    PROCESS_R7,
-    PROCESS_R8,
-    PROCESS_R9,
-    PROCESS_R10,
-    PROCESS_R11,
-    PROCESS_R12,
-
-    PROCESS_SP,
-    PROCESS_LR,
-    PROCESS_PC,
-};
-
 struct registers {
-    // we save in PendSV_Handler
+    // we save and restore ourselves in PendSV_Handler
     uint32_t sp; // r13
     uint32_t r4;
     uint32_t r5;
@@ -85,7 +65,7 @@ struct registers {
     uint32_t r10;
     uint32_t r11;
 
-    // saved by the CPU on interrupt
+    // saved and restored by the CPU on interrupt
     uint32_t r0;
     uint32_t r1;
     uint32_t r2;
@@ -97,13 +77,16 @@ struct registers {
 };
 
 struct process {
-    uint32_t id;
-    size_t stack;
-
+    uint32_t pid;
     struct registers registers;
 };
 
-struct process process = {0};
+#define PROCESS_STACK_SIZE 128
+
+struct process *process_current;
+struct process *process_next;
+struct process process_1;
+struct process process_2;
 
 struct page {
     uint32_t i;
@@ -203,6 +186,25 @@ int putchar(int c) {
     return 0;
 }
 
+// trigger red led
+void fn_process_1() {
+    while (true) {
+        for (int i = 0; i < 10000000; i++) {
+            GPIOB->ODR ^= GPIO_ODR_OD2;
+        }
+    }
+}
+
+// trigger green led
+void fn_process_2() {
+    while (true) {
+        for (int i = 0; i < 10000000; i++) {
+            GPIOE->ODR ^= GPIO_ODR_OD8;
+        }
+    }
+}
+
+
 void kernel_main(void) {
     FLASH->ACR &= ~FLASH_ACR_LATENCY_Msk;
     FLASH->ACR |= FLASH_ACR_LATENCY_2WS;
@@ -245,8 +247,9 @@ void kernel_main(void) {
     NVIC->ISER[1] |= 1 << (38 - 32);
 
     // enable port D (for usart rx/tx)
-    // enable port b (for red LED)
-    RCC->AHB2ENR |= RCC_AHB2ENR_GPIOBEN | RCC_AHB2ENR_GPIODEN;
+    // enable port B (for red LED)
+    // enable port E (for green LED)
+    RCC->AHB2ENR |= RCC_AHB2ENR_GPIOBEN | RCC_AHB2ENR_GPIODEN | RCC_AHB2ENR_GPIOEEN;
 
     RCC->APB1ENR1 |= RCC_APB1ENR1_USART2EN;
 
@@ -262,6 +265,10 @@ void kernel_main(void) {
     GPIOB->MODER &= ~GPIO_MODER_MODE2;
     GPIOB->MODER |= GPIO_MODER_MODE2_0;
 
+    // set mode for green led (pin 8) to general purpose output
+    GPIOE->MODER &= ~GPIO_MODER_MODE8;
+    GPIOE->MODER |= GPIO_MODER_MODE8_0;
+
     // 5000 happens to be the number we need to reach 9600 baud.
     // probably should be a bit cleverer here, but oh well---we'll
     // just OR it in.
@@ -276,47 +283,76 @@ void kernel_main(void) {
     HardFault_Handler();
 #endif
 
+    /*
     char* msg = mem_get_page();
 
     for (int i = 0; i < 999; i++) {
         msg[i] = 'a' + i % 26;
     }
+
     msg[999] = '\0';
+    */
 
-    printf("%s\n", msg);
+    // printf("%s\n", msg);
 
-    mem_print_page_info();
+    // mem_print_page_info();
+
+    uint32_t process_1_stack[PROCESS_STACK_SIZE] = {0};
+    uint32_t process_2_stack[PROCESS_STACK_SIZE] = {0};
+
+    uint32_t sp = 8;
+
+    process_1.pid = 1;
+
+    process_1.registers.sp = (uint32_t) (((uint32_t*)&process_1_stack) + sp);
+    process_1.registers.xpsr = process_1_stack[sp - 8] = 0x01000000;
+    process_1.registers.pc = process_1_stack[sp - 7] = (uint32_t) &fn_process_1;
+    // do lr
+
+    process_2.pid = 2;
+
+    process_2.registers.sp = (uint32_t) (((uint32_t*)&process_2_stack) + sp);
+    process_2.registers.xpsr = process_2_stack[sp - 8] = 0x01000000;
+    process_2.registers.pc = process_2_stack[sp - 7] = (uint32_t) &fn_process_2;
 
     /*
-    int a = 0;
-    int b = 239;
-    while (true) {
-        for (int i = 0; i < 10000000; i++) {
-            asm("nop");
-        }
-
-        a += b;
-    }
+    process_1.registers.xpsr = process_1_stack[sp + 0] = 0x01000000;
+    process_1.registers.pc = process_1_stack[sp - 7] = (uint32_t) &fn_process_1;
+    process_1.registers.sp = process_1_stack[sp - 6] = (uint32_t) (&process_1_stack + stack_offset);
     */
+
+    /*
+    process_2.pid = 2;
+    process_2.registers.sp = process_2_stack[PROCESS_STACK_SIZE-3] = (uint32_t) (&process_2_stack + stack_offset);
+    process_2.registers.pc = process_2_stack[PROCESS_STACK_SIZE-2] = (uint32_t) &fn_process_2;
+    process_2.registers.xpsr = process_2_stack[PROCESS_STACK_SIZE-1] = 0x01000000;
+
+    process_current = 0;
+    */
+
+    while (true);
 }
 
+struct registers *context_switch(struct registers *registers) {
+    process_current->registers = *registers;
 
-void context_switch(struct registers *registers) {
-    registers->sp += sizeof(*registers) - sizeof(uint32_t);
-    process.registers = *registers;
+    process_current = process_next;
+    process_next = 0;
 
-    asm("nop");
+    return &process_current->registers;
 }
 
-int count = 0;
 void SysTick_Handler(void) {
-    if (count % 10 == 0) {
-        GPIOB->ODR ^= GPIO_ODR_OD2;
+    // scheduling happens in here, and we choose the next process
+    if (process_current == 0) {
+        process_next = &process_1;
+    } else if (process_current->pid == process_1.pid) {
+        process_next = &process_2;
+    } else {
+        process_next = &process_1;
     }
 
-    count += 1;
-
-    // trigger pendSV
+    // trigger PendSV
     SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk;
 }
 
@@ -328,4 +364,6 @@ void USART2_IRQHandler(void) {
 void HardFault_Handler(void) {
     DUMP_REGS;
     printf("Hard Fault - Possibly Unrecoverable :(\n");
+
+    while (true);
 }
