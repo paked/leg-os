@@ -53,6 +53,58 @@ void *memcpy(void* dest, const void *src, size_t n) {
     return dest;
 }
 
+enum {
+    PROCESS_R0,
+    PROCESS_R1,
+    PROCESS_R2,
+    PROCESS_R3,
+    PROCESS_R4,
+    PROCESS_R5,
+    PROCESS_R6,
+    PROCESS_R7,
+    PROCESS_R8,
+    PROCESS_R9,
+    PROCESS_R10,
+    PROCESS_R11,
+    PROCESS_R12,
+
+    PROCESS_SP,
+    PROCESS_LR,
+    PROCESS_PC,
+};
+
+struct registers {
+    // we save in PendSV_Handler
+    uint32_t sp; // r13
+    uint32_t r4;
+    uint32_t r5;
+    uint32_t r6;
+    uint32_t r7;
+    uint32_t r8;
+    uint32_t r9;
+    uint32_t r10;
+    uint32_t r11;
+
+    // saved by the CPU on interrupt
+    uint32_t r0;
+    uint32_t r1;
+    uint32_t r2;
+    uint32_t r3;
+    uint32_t r12; // intra-process scratch register
+    uint32_t lr; // r14
+    uint32_t pc; // r15
+    uint32_t xpsr;
+};
+
+struct process {
+    uint32_t id;
+    size_t stack;
+
+    struct registers registers;
+};
+
+struct process process = {0};
+
 struct page {
     uint32_t i;
     uint8_t is_allocated;
@@ -152,7 +204,6 @@ int putchar(int c) {
 }
 
 void kernel_main(void) {
-
     FLASH->ACR &= ~FLASH_ACR_LATENCY_Msk;
     FLASH->ACR |= FLASH_ACR_LATENCY_2WS;
 
@@ -166,6 +217,28 @@ void kernel_main(void) {
     while ((RCC->CR & RCC_CR_MSIRDY) != RCC_CR_MSIRDY) {}
 
     mem_init();
+
+    //
+    // SysTick setup
+    //
+
+    // trigger 10 times a second
+    SysTick->LOAD &= ~SysTick_LOAD_RELOAD_Msk;
+    SysTick->LOAD |= 0b10010010011111000000000;
+
+    SysTick->CTRL |=
+        SysTick_CTRL_CLKSOURCE_Msk| // use system clock (48MHz by now)
+        SysTick_CTRL_TICKINT_Msk; // trigger interrupt at end of count down
+
+    // trigger an interrupt on zero
+    SysTick->CTRL |= SysTick_CTRL_ENABLE_Msk;
+
+    // set PendSV priority to lowest possible
+    SCB->SHP[11] = 0xFF;
+
+    //
+    // USART setup
+    //
 
     // interrupts
     // direct lines don't require EXTI configuration
@@ -214,16 +287,37 @@ void kernel_main(void) {
 
     mem_print_page_info();
 
+    /*
+    int a = 0;
+    int b = 239;
     while (true) {
-        /*
-        // char *msg = "hello world!\n";
-        // usart_send(msg, 13);
-        printf("hello: %x\n", &end);
-        for (int i = 0; i < 1000000; i++) {
+        for (int i = 0; i < 10000000; i++) {
             asm("nop");
         }
-        */
+
+        a += b;
     }
+    */
+}
+
+
+void context_switch(struct registers *registers) {
+    registers->sp += sizeof(*registers) - sizeof(uint32_t);
+    process.registers = *registers;
+
+    asm("nop");
+}
+
+int count = 0;
+void SysTick_Handler(void) {
+    if (count % 10 == 0) {
+        GPIOB->ODR ^= GPIO_ODR_OD2;
+    }
+
+    count += 1;
+
+    // trigger pendSV
+    SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk;
 }
 
 void USART2_IRQHandler(void) {

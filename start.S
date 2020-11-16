@@ -71,6 +71,18 @@ bcc	FillZerobss
 bl kernel_main
 
 loop:
+  mov r0, 0x0000
+  mov r1, 0x1111
+  mov r2, 0x2222
+  mov r3, 0x3333
+  mov r4, 0x4444
+  mov r5, 0x5555
+  mov r6, 0x6666
+  mov r7, 0x7777
+  mov r8, 0x8888
+  mov r9, 0x9999
+  mov r10, 0x1010
+
   nop
   b loop
 LoopForever:
@@ -233,9 +245,6 @@ g_pfnVectors:
 
 .weak	DebugMon_Handler
 .thumb_set DebugMon_Handler,Default_Handler
-
-.weak	PendSV_Handler
-.thumb_set PendSV_Handler,Default_Handler
 
 .weak	SysTick_Handler
 .thumb_set SysTick_Handler,Default_Handler
@@ -483,3 +492,24 @@ g_pfnVectors:
 .weak	FPU_IRQHandler
 .thumb_set FPU_IRQHandler,Default_Handler
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
+
+.type PendSV_Handler, %function
+PendSV_Handler:
+  push {r4-r11}
+
+  mov r0, sp
+  sub sp, 4
+  str r0, [sp] // add sorta wrong sp to stack TODO(harrison): this can be done with a post decrement op
+
+  mov r0, sp
+
+  push {lr}
+  bl context_switch
+  pop {lr}
+
+  add sp, 4 // remove sp from stack
+
+  pop {r4-r11}
+
+  bx lr
+.size PendSV_Handler, .-PendSV_Handler
