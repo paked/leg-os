@@ -6,8 +6,6 @@
 #include "printf.c"
 #include "stm32l476xx.h"
 
-// #undef TEST
-
 #define USART_TTY USART2
 
 #define DUMP_REGS                                        \
@@ -29,15 +27,15 @@ extern uint32_t _sstack;
 extern uint32_t _estack;
 extern uint32_t end;
 
-#define STACK_SIZE ((&_estack - &_sstack)*sizeof(uint32_t))
+#define STACK_SIZE ((&_estack - &_sstack) * sizeof(uint32_t))
 #define HEAP_SIZE (96000 - STACK_SIZE)
 
 // #define TEST // define if testing usart printing
 
 #define USART_TTY USART2
 
-void *memset(void* s, int c, size_t len) {
-    char* data = (char*) s;
+void *memset(void *s, int c, size_t len) {
+    char *data = (char *)s;
     for (size_t i = 0; i < len; i++) {
         data[i] = c;
     }
@@ -45,9 +43,9 @@ void *memset(void* s, int c, size_t len) {
     return data;
 }
 
-void *memcpy(void* dest, const void *src, size_t n) {
-    char *d = (char*) dest;
-    char *s = (char*) src;
+void *memcpy(void *dest, const void *src, size_t n) {
+    char *d = (char *)dest;
+    char *s = (char *)src;
 
     for (size_t i = 0; i < n; i++) {
         d[i] = s[i];
@@ -62,7 +60,7 @@ struct registers {
     uint32_t r4;
     uint32_t r5;
     uint32_t r6;
-    uint32_t r7;
+    uint32_t r7; //fp???
     uint32_t r8;
     uint32_t r9;
     uint32_t r10;
@@ -74,8 +72,8 @@ struct registers {
     uint32_t r2;
     uint32_t r3;
     uint32_t r12; // intra-process scratch register
-    uint32_t lr; // r14
-    uint32_t pc; // r15
+    uint32_t lr;  // r14
+    uint32_t pc;  // r15
     uint32_t xpsr;
 };
 
@@ -93,26 +91,25 @@ struct process process_2;
 
 struct page {
     uint32_t i;
-    uint8_t is_allocated;
-
-    uint8_t reserved1; // padded to 8 bytes
-    uint16_t reserved2;
+    uint32_t is_allocated;
+    uint32_t owner;
 };
 
 struct page *pages;
 uint32_t pages_count;
-char* heap_start;
+char *heap_start;
 
 #define PAGE_SIZE 2048
 #define MEM_PER_PAGE (sizeof(struct page) + PAGE_SIZE)
 
-uint32_t process_1_stack[PROCESS_STACK_SIZE] = {};
-uint32_t process_2_stack[PROCESS_STACK_SIZE] = {0};
+uint32_t get_current_pid() {
+    return process_current != 0 ? process_current->pid : 0;
+}
 
 void mem_init() {
     // get amount of pages we can fit in memory
-    pages_count = HEAP_SIZE/MEM_PER_PAGE;
-    pages = (struct page*) &end;
+    pages_count = HEAP_SIZE / MEM_PER_PAGE;
+    pages = (struct page *)&end;
 
     // clear page metadata to zero
     memset(pages, 0, pages_count * sizeof(struct page));
@@ -122,7 +119,7 @@ void mem_init() {
         pages[i].i = i;
     }
 
-    heap_start = (char*) (pages + pages_count);
+    heap_start = (char *)(pages + pages_count);
 }
 
 void mem_print_page_info() {
@@ -132,55 +129,62 @@ void mem_print_page_info() {
     printf("page size: %d\n", PAGE_SIZE);
     printf("heap size: %d\n", HEAP_SIZE);
     printf("memory per page: %d\n", MEM_PER_PAGE);
-    printf("amount of pages (including metadata) we can fit in memory: %d\n", HEAP_SIZE/MEM_PER_PAGE);
+    printf("amount of pages (including metadata) we can fit in memory: %d\n", HEAP_SIZE / MEM_PER_PAGE);
 
     for (uint32_t i = 0; i < pages_count; i++) {
-        struct page* page = &pages[i];
+        struct page *page = &pages[i];
 
         printf("i=%d allocated: %s\n", page->i, page->is_allocated ? "T\0" : "F\0");
         if (page->is_allocated) {
-            memcpy(preview, heap_start+(page->i*PAGE_SIZE), 46);
+            memcpy(preview, heap_start + (page->i * PAGE_SIZE), 46);
             printf("%s\n", preview);
         }
     }
 }
 
-void *mem_get_page() {
+void *mem_get_page(uint32_t owner) {
+    disable_irq();
+    void *out = 0;
+
     for (uint32_t i = 0; i < pages_count; i++) {
         struct page *page = &pages[i];
 
         if (!page->is_allocated) {
             page->is_allocated = true;
+            page->owner = owner;
 
-            return heap_start + (page->i * PAGE_SIZE);
+            out = heap_start + (page->i * PAGE_SIZE);
+            goto ret;
         }
     }
 
     printf("ERROR: no pages left\n");
 
-    return 0;
+ret:
+    enable_irq();
+    return out;
 }
 
-void mem_free_page(void* p) {
-    uint32_t offs = (uint32_t) p - (uint32_t)heap_start;
+void *mem_get_user_page() {
+    return mem_get_page(get_current_pid());
+}
+
+void mem_free_page(void *p) {
+    disable_irq();
+
+    uint32_t offs = (uint32_t)p - (uint32_t)heap_start;
     if (offs % PAGE_SIZE != 0) {
         printf("ERROR: trying to free a page which does not fall on a page boundary\n");
-
-        return;
+        goto ret;
     }
 
     struct page *page = &pages[offs / PAGE_SIZE];
     page->is_allocated = false;
-}
 
-// Blocking USART send
-void usart_send(char *data, uint32_t size) {
-    for (uint32_t i = 0; i < size; i++) {
-        putchar(data[i]);
-    }
+ret:
+    enable_irq();
 }
-
-// TODO(harrison): should we make this disable interrupts whien it sends the bits?
+// TODO(harrison): should we make this disable int  errupts whien it sends the bits?
 int putchar(int c) {
     // will need a lock on the usart port
 
@@ -197,11 +201,9 @@ int putchar(int c) {
 // trigger red led
 void fn_process_1() {
     while (true) {
-        /*
         for (int i = 0; i < 1000000; i++) {
             asm("nop");
         }
-        */
 
         printf("hello\n");
     }
@@ -209,6 +211,8 @@ void fn_process_1() {
 
 // trigger green led
 void fn_process_2() {
+    mem_print_page_info();
+
     while (true) {
         for (int i = 0; i < 1000000; i++) {
             asm("nop");
@@ -216,6 +220,70 @@ void fn_process_2() {
 
         GPIOE->ODR ^= GPIO_ODR_OD8;
     }
+}
+
+#define MAX_PROCESSES 16
+struct process processes[MAX_PROCESSES] = {0};
+
+void process_quit() {
+    uint32_t pid = get_current_pid();
+
+    for (uint32_t i = 0; i < pages_count; i++) {
+        if (pages[i].owner == pid) {
+            mem_free_page(heap_start + (pages[i].i * PAGE_SIZE));
+        }
+    }
+
+    processes[pid - 1].pid = 0;
+    while (1) {
+        asm("nop");
+        asm("nop");
+    };
+}
+
+int create_process(void *func) {
+    //returns a process ID
+    disable_irq();
+    int out = 0;
+
+    for (int i = 0; i < MAX_PROCESSES; i++) {
+        if (processes[i].pid == 0) {
+            uint32_t pid = i + 1;
+            uint32_t *stack_address = (uint32_t *)mem_get_page(pid);
+
+            if (stack_address == 0) {
+                printf("Failed to allocate a stack for a new process");
+                goto ret;
+            }
+            //later: allocate heap
+
+            uint32_t spi = PROCESS_STACK_SIZE - 16;
+
+            processes[i].registers.sp = (int32_t)&stack_address[spi];
+            // process_1_stack[spi + 0] = 0x0;                     // r0
+            // process_1_stack[spi + 1] = 0x0;                     // r1
+            // process_1_stack[spi + 2] = 0x0;                     // r2
+            // process_1_stack[spi + 3] = 0x0;                     // r3
+            // process_1_stack[spi + 4] = 0x0;                     // r12
+            stack_address[spi + 5] = (uint32_t)&process_quit; // lr
+            stack_address[spi + 6] = (uint32_t)func;          // pc
+            stack_address[spi + 7] = 0x01000000;              // xpsr
+
+            //register the process with the scheduler.
+            out = processes[i].pid = pid;
+            goto ret;
+        }
+    }
+    printf("16 tasks are already running!");
+ret:
+    enable_irq();
+    return out;
+}
+
+void main_user_process() {
+    create_process(&fn_process_1);
+    create_process(&fn_process_2);
+    asm("nop");
 }
 
 void kernel_main(void) {
@@ -243,7 +311,7 @@ void kernel_main(void) {
 
     SysTick->CTRL |=
         SysTick_CTRL_CLKSOURCE_Msk | // use system clock (48MHz by now)
-        SysTick_CTRL_TICKINT_Msk; // trigger interrupt at end of count down
+        SysTick_CTRL_TICKINT_Msk;    // trigger interrupt at end of count down
 
     // trigger an interrupt on zero
     SysTick->CTRL |= SysTick_CTRL_ENABLE_Msk;
@@ -287,7 +355,7 @@ void kernel_main(void) {
     // 5000 happens to be the number we need to reach 9600 baud.
     // probably should be a bit cleverer here, but oh well---we'll
     // just OR it in.
-    USART_TTY->BRR |= 5000;
+    USART_TTY->BRR |= 1250;
 
     USART_TTY->CR1 |= USART_CR1_TE | USART_CR1_RE | USART_CR1_RXNEIE;
     USART_TTY->CR1 |= USART_CR1_UE;
@@ -295,46 +363,13 @@ void kernel_main(void) {
 #ifdef TEST
     void HardFault_Handler(void);
     print_test();
-    HardFault_Handler();
+
+    // HardFault_Handler();
 #endif
-
-    uint32_t spi = PROCESS_STACK_SIZE - 16;
-
-    // spi is the top of the stack
-    // +0 is r0
-    // +1 is r1
-    // +2 is r2
-    // +3 is r3
-    // +4 is r12
-    // +5 is lr
-    // +6 is pc
-    // +7 is xpsr
-
-    process_1.pid = 1;
-
-    process_1.registers.sp = (uint32_t) &process_1_stack[spi];
-    process_1_stack[spi + 0] = 0x0; // r0
-    process_1_stack[spi + 1] = 0x0; // r1
-    process_1_stack[spi + 2] = 0x0; // r2
-    process_1_stack[spi + 3] = 0x0; // r3
-    process_1_stack[spi + 4] = 0x0; // r12
-    process_1_stack[spi + 5] = 0x0; // lr
-    process_1_stack[spi + 6] = (uint32_t) &fn_process_1; // pc
-    process_1_stack[spi + 7] = 0x01000000; // xpsr
-
-    process_2.pid = 2;
-
-    process_2.registers.sp = (uint32_t) &process_2_stack[spi];
-    process_2_stack[spi + 0] = 0x0; // r0
-    process_2_stack[spi + 1] = 0x0; // r1
-    process_2_stack[spi + 2] = 0x0; // r2
-    process_2_stack[spi + 3] = 0x0; // r3
-    process_2_stack[spi + 4] = 0x0; // r12
-    process_2_stack[spi + 5] = 0x0; // lr
-    process_2_stack[spi + 6] = (uint32_t) &fn_process_2; // pc
-    process_2_stack[spi + 7] = 0x01000000; // xpsr
-
+    create_process(&main_user_process);
+    printf("kernel boot");
     while (true) {
+        printf(".");
         asm("nop");
     }
 }
@@ -352,26 +387,32 @@ struct registers *context_switch(struct registers *registers) {
 
 void SysTick_Handler(void) {
     // scheduling happens in here, and we choose the next process
-    if (process_current == 0) {
-        process_next = &process_1;
-    } else if (process_current->pid == process_1.pid) {
-        process_next = &process_2;
-    } else {
-        process_next = &process_1;
-    }
 
-    // trigger PendSV
-    SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk;
+    int prev_task_index = process_current != 0 ? process_current->pid - 1 : 0;
+    int check_process = prev_task_index + 1;
+    for (int i = 0; i < MAX_PROCESSES; i++) {
+        if (processes[check_process].pid != 0) {
+            process_next = &processes[check_process];
+            break;
+        }
+        check_process = (check_process + 1) % MAX_PROCESSES;
+    }
+    if (process_next != 0) {
+        // trigger PendSV
+        SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk;
+    }
+    //do nothing as no tasks are running
 }
 
 void USART2_IRQHandler(void) {
     char recv = (char)(USART_TTY->RDR & 0xFF);
-    usart_send(&recv, 1);
+    putchar(recv);
 }
 
 void HardFault_Handler(void) {
     DUMP_REGS;
     printf("Hard Fault - Possibly Unrecoverable :(\n");
 
-    while (true);
+    while (true)
+        ;
 }

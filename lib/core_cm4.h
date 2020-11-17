@@ -15,6 +15,20 @@
 #define     __IOM    volatile            /*! Defines 'read / write' structure member permissions */
 
 
+// Enable IRQ Interrupts
+static inline void enable_irq(void)
+{
+  asm volatile ("cpsie i" : : : "memory");
+}
+
+
+// Disable IRQ Interrupts
+
+static inline void disable_irq(void)
+{
+  asm volatile ("cpsid i" : : : "memory");
+}
+
 typedef struct
 {
   __IOM uint32_t ISER[8U];               /*!< Offset: 0x000 (R/W)  Interrupt Set Enable Register */
