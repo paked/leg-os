@@ -25,9 +25,12 @@
     printf("sp:\t0x%x\n", stack_pointer);                \
     printf("flags:\t0x%x\n", flags_reg);
 
+extern uint32_t _sstack;
+extern uint32_t _estack;
 extern uint32_t end;
 
-#define HEAP_SIZE (96000 - 10000)
+#define STACK_SIZE ((&_estack - &_sstack)*sizeof(uint32_t))
+#define HEAP_SIZE (96000 - STACK_SIZE)
 
 // #define TEST // define if testing usart printing
 
@@ -103,6 +106,9 @@ char* heap_start;
 #define PAGE_SIZE 2048
 #define MEM_PER_PAGE (sizeof(struct page) + PAGE_SIZE)
 
+uint32_t process_1_stack[PROCESS_STACK_SIZE] = {};
+uint32_t process_2_stack[PROCESS_STACK_SIZE] = {0};
+
 void mem_init() {
     // get amount of pages we can fit in memory
     pages_count = HEAP_SIZE/MEM_PER_PAGE;
@@ -174,6 +180,7 @@ void usart_send(char *data, uint32_t size) {
     }
 }
 
+// TODO(harrison): should we make this disable interrupts whien it sends the bits?
 int putchar(int c) {
     // will need a lock on the usart port
 
@@ -183,27 +190,33 @@ int putchar(int c) {
     while (!(USART_TTY->ISR & USART_ISR_TC)) {}
 
     USART_TTY->TDR = (USART_TTY->TDR & ~USART_TDR_TDR_Msk) | (uint32_t)(c);
+
     return 0;
 }
 
 // trigger red led
 void fn_process_1() {
     while (true) {
-        for (int i = 0; i < 10000000; i++) {
-            GPIOB->ODR ^= GPIO_ODR_OD2;
+        /*
+        for (int i = 0; i < 1000000; i++) {
+            asm("nop");
         }
+        */
+
+        printf("hello\n");
     }
 }
 
 // trigger green led
 void fn_process_2() {
     while (true) {
-        for (int i = 0; i < 10000000; i++) {
-            GPIOE->ODR ^= GPIO_ODR_OD8;
+        for (int i = 0; i < 1000000; i++) {
+            asm("nop");
         }
+
+        GPIOE->ODR ^= GPIO_ODR_OD8;
     }
 }
-
 
 void kernel_main(void) {
     FLASH->ACR &= ~FLASH_ACR_LATENCY_Msk;
@@ -226,17 +239,19 @@ void kernel_main(void) {
 
     // trigger 10 times a second
     SysTick->LOAD &= ~SysTick_LOAD_RELOAD_Msk;
-    SysTick->LOAD |= 0b10010010011111000000000;
+    SysTick->LOAD |= 48000; // clocked at 48MHz, 48Mhz / 1000hz is 48000 (tick at 1ms intervals)
 
     SysTick->CTRL |=
-        SysTick_CTRL_CLKSOURCE_Msk| // use system clock (48MHz by now)
+        SysTick_CTRL_CLKSOURCE_Msk | // use system clock (48MHz by now)
         SysTick_CTRL_TICKINT_Msk; // trigger interrupt at end of count down
 
     // trigger an interrupt on zero
     SysTick->CTRL |= SysTick_CTRL_ENABLE_Msk;
 
     // set PendSV priority to lowest possible
-    SCB->SHP[11] = 0xFF;
+    SCB->SHP[14 - 4] = 0xFF;
+    // set SysTick priority to highest possible
+    SCB->SHP[15 - 4] = 0x00;
 
     //
     // USART setup
@@ -295,8 +310,44 @@ void kernel_main(void) {
 
     // printf("%s\n", msg);
 
-    // mem_print_page_info();
+    memset(process_1_stack, 0x69, sizeof(process_1_stack));
+    uint32_t spi = PROCESS_STACK_SIZE - 16;
 
+    // spi is the first empty value
+    // -1 is r0
+    // -2 is r1
+    // -3 is r2
+    // -4 is r3
+    // -5 is r12
+    // -6 is lr
+    // -7 is pc
+    // -8 is xpsr
+    process_1.pid = 1;
+
+    process_1.registers.sp = (uint32_t) &process_1_stack[spi];
+    process_1_stack[spi + 0] = 0x0; // r0
+    process_1_stack[spi + 1] = 0x0; // r1
+    process_1_stack[spi + 2] = 0x0; // r2
+    process_1_stack[spi + 3] = 0x0; // r3
+    process_1_stack[spi + 4] = 0x0; // r12
+    process_1_stack[spi + 5] = 0x0; // lr
+    process_1_stack[spi + 6] = (uint32_t) &fn_process_1; // pc
+    process_1_stack[spi + 7] = 0x01000000; // xpsr
+
+    process_2.pid = 2;
+
+    process_2.registers.sp = (uint32_t) &process_2_stack[spi];
+    process_2_stack[spi + 0] = 0x0; // r0
+    process_2_stack[spi + 1] = 0x0; // r1
+    process_2_stack[spi + 2] = 0x0; // r2
+    process_2_stack[spi + 3] = 0x0; // r3
+    process_2_stack[spi + 4] = 0x0; // r12
+    process_2_stack[spi + 5] = 0x0; // lr
+    process_2_stack[spi + 6] = (uint32_t) &fn_process_2; // pc
+    process_2_stack[spi + 7] = 0x01000000; // xpsr
+
+
+    /*
     uint32_t process_1_stack[PROCESS_STACK_SIZE] = {0};
     uint32_t process_2_stack[PROCESS_STACK_SIZE] = {0};
 
@@ -307,13 +358,13 @@ void kernel_main(void) {
     process_1.registers.sp = (uint32_t) (((uint32_t*)&process_1_stack) + sp);
     process_1.registers.xpsr = process_1_stack[sp - 8] = 0x01000000;
     process_1.registers.pc = process_1_stack[sp - 7] = (uint32_t) &fn_process_1;
-    // do lr
 
     process_2.pid = 2;
 
     process_2.registers.sp = (uint32_t) (((uint32_t*)&process_2_stack) + sp);
     process_2.registers.xpsr = process_2_stack[sp - 8] = 0x01000000;
     process_2.registers.pc = process_2_stack[sp - 7] = (uint32_t) &fn_process_2;
+    */
 
     /*
     process_1.registers.xpsr = process_1_stack[sp + 0] = 0x01000000;
@@ -330,11 +381,19 @@ void kernel_main(void) {
     process_current = 0;
     */
 
-    while (true);
+    /*
+    printf("_estack: %x\n", &_estack);
+    */
+
+    while (true) {
+        asm("nop");
+    }
 }
 
 struct registers *context_switch(struct registers *registers) {
-    process_current->registers = *registers;
+    if (process_current != 0) {
+        process_current->registers = *registers;
+    }
 
     process_current = process_next;
     process_next = 0;

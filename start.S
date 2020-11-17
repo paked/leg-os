@@ -495,7 +495,7 @@ g_pfnVectors:
 
 .type PendSV_Handler, %function
 PendSV_Handler:
-  mov r0, sp
+  mov r0, sp // stack
   push {r0, r4-r11}
 
   mov r0, sp
@@ -508,10 +508,7 @@ PendSV_Handler:
   add r0, #4
   mov sp, r0
   pop {r4-r11}
-//  add r1, #4
   mov sp, r1
-
-  // mov lr, 0xFFFFFFF9
 
   bx lr
 .size PendSV_Handler, .-PendSV_Handler
