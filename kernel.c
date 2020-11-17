@@ -298,30 +298,18 @@ void kernel_main(void) {
     HardFault_Handler();
 #endif
 
-    /*
-    char* msg = mem_get_page();
-
-    for (int i = 0; i < 999; i++) {
-        msg[i] = 'a' + i % 26;
-    }
-
-    msg[999] = '\0';
-    */
-
-    // printf("%s\n", msg);
-
-    memset(process_1_stack, 0x69, sizeof(process_1_stack));
     uint32_t spi = PROCESS_STACK_SIZE - 16;
 
-    // spi is the first empty value
-    // -1 is r0
-    // -2 is r1
-    // -3 is r2
-    // -4 is r3
-    // -5 is r12
-    // -6 is lr
-    // -7 is pc
-    // -8 is xpsr
+    // spi is the top of the stack
+    // +0 is r0
+    // +1 is r1
+    // +2 is r2
+    // +3 is r3
+    // +4 is r12
+    // +5 is lr
+    // +6 is pc
+    // +7 is xpsr
+
     process_1.pid = 1;
 
     process_1.registers.sp = (uint32_t) &process_1_stack[spi];
@@ -345,45 +333,6 @@ void kernel_main(void) {
     process_2_stack[spi + 5] = 0x0; // lr
     process_2_stack[spi + 6] = (uint32_t) &fn_process_2; // pc
     process_2_stack[spi + 7] = 0x01000000; // xpsr
-
-
-    /*
-    uint32_t process_1_stack[PROCESS_STACK_SIZE] = {0};
-    uint32_t process_2_stack[PROCESS_STACK_SIZE] = {0};
-
-    uint32_t sp = 8;
-
-    process_1.pid = 1;
-
-    process_1.registers.sp = (uint32_t) (((uint32_t*)&process_1_stack) + sp);
-    process_1.registers.xpsr = process_1_stack[sp - 8] = 0x01000000;
-    process_1.registers.pc = process_1_stack[sp - 7] = (uint32_t) &fn_process_1;
-
-    process_2.pid = 2;
-
-    process_2.registers.sp = (uint32_t) (((uint32_t*)&process_2_stack) + sp);
-    process_2.registers.xpsr = process_2_stack[sp - 8] = 0x01000000;
-    process_2.registers.pc = process_2_stack[sp - 7] = (uint32_t) &fn_process_2;
-    */
-
-    /*
-    process_1.registers.xpsr = process_1_stack[sp + 0] = 0x01000000;
-    process_1.registers.pc = process_1_stack[sp - 7] = (uint32_t) &fn_process_1;
-    process_1.registers.sp = process_1_stack[sp - 6] = (uint32_t) (&process_1_stack + stack_offset);
-    */
-
-    /*
-    process_2.pid = 2;
-    process_2.registers.sp = process_2_stack[PROCESS_STACK_SIZE-3] = (uint32_t) (&process_2_stack + stack_offset);
-    process_2.registers.pc = process_2_stack[PROCESS_STACK_SIZE-2] = (uint32_t) &fn_process_2;
-    process_2.registers.xpsr = process_2_stack[PROCESS_STACK_SIZE-1] = 0x01000000;
-
-    process_current = 0;
-    */
-
-    /*
-    printf("_estack: %x\n", &_estack);
-    */
 
     while (true) {
         asm("nop");
