@@ -27,6 +27,9 @@ extern uint32_t _sstack;
 extern uint32_t _estack;
 extern uint32_t end;
 
+extern uint32_t __ldrex(void *addr);
+extern bool __strex(void *addr, uint32_t val);
+
 #define STACK_SIZE ((&_estack - &_sstack) * sizeof(uint32_t))
 #define HEAP_SIZE (96000 - STACK_SIZE)
 
@@ -42,7 +45,6 @@ void *memset(void *s, int c, size_t len) {
 
     return data;
 }
-
 void *memcpy(void *dest, const void *src, size_t n) {
     char *d = (char *)dest;
     char *s = (char *)src;
@@ -52,6 +54,36 @@ void *memcpy(void *dest, const void *src, size_t n) {
     }
 
     return dest;
+}
+
+struct lock {
+    bool locked;
+    void *protected_data;
+};
+
+struct lock lock1;
+
+struct lock *create_lock(void *protected_data) {
+    //malloc a lock?
+
+    lock1.locked = false;
+    lock1.protected_data = protected_data;
+    return &lock1;
+}
+
+void take_lock(struct lock *l) {
+    while (true) {
+        while (__ldrex(l)) {
+            asm("nop");
+        }
+        if (0 == __strex(l, 1)) {
+            break;
+        }
+    }
+}
+
+void release_lock(struct lock *l) {
+    l->locked = false;
 }
 
 struct registers {
@@ -148,7 +180,7 @@ void mem_print_page_info() {
 }
 
 void *mem_get_page(uint32_t owner) {
-    disable_irq();
+    DISABLE_IRQ;
     void *out = 0;
 
     for (uint32_t i = 0; i < pages_count; i++) {
@@ -166,7 +198,7 @@ void *mem_get_page(uint32_t owner) {
     printf("ERROR: no pages left\n");
 
 ret:
-    enable_irq();
+    ENABLE_IRQ;
     return out;
 }
 
@@ -175,7 +207,7 @@ void *mem_get_user_page() {
 }
 
 void mem_free_page(void *p) {
-    disable_irq();
+    DISABLE_IRQ;
 
     uint32_t offs = (uint32_t)p - (uint32_t)heap_start;
     if (offs % PAGE_SIZE != 0) {
@@ -187,7 +219,7 @@ void mem_free_page(void *p) {
     page->is_allocated = false;
 
 ret:
-    enable_irq();
+    ENABLE_IRQ;
 }
 // TODO(harrison): should we make this disable int  errupts whien it sends the bits?
 int putchar(int c) {
@@ -207,6 +239,10 @@ int putchar(int c) {
 void fn_process_1() {
     int j = 0;
     while (true) {
+        take_lock(&lock1);
+        printf("hello from process %d\n", get_current_pid());
+        release_lock(&lock1);
+
         for (int i = 0; i < 1000000; i++) {
             asm("nop");
         }
@@ -224,7 +260,7 @@ void fn_process_1() {
 
 // trigger green led
 void fn_process_2() {
-    mem_print_page_info();
+    // mem_print_page_info();
 
     while (true) {
         for (int i = 0; i < 1000000; i++) {
@@ -257,7 +293,7 @@ void process_quit() {
 
 int create_process(void *func) {
     //returns a process ID
-    disable_irq();
+    DISABLE_IRQ;
     int out = 0;
 
     for (int i = 0; i < MAX_PROCESSES; i++) {
@@ -290,11 +326,13 @@ int create_process(void *func) {
     }
     printf("16 tasks are already running!");
 ret:
-    enable_irq();
+    ENABLE_IRQ;
     return out;
 }
 
 void main_user_process() {
+    create_process(&fn_process_1);
+    create_process(&fn_process_1);
     create_process(&fn_process_1);
     create_process(&fn_process_2);
     asm("nop");
@@ -418,10 +456,8 @@ void kernel_main(void) {
     // HardFault_Handler();
 #endif
     create_process(&main_user_process);
-    printf("kernel boot");
     while (true) {
-        printf(".");
-        asm("nop");
+        putchar('.');
     }
 }
 

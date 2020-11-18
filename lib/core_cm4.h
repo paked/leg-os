@@ -16,18 +16,9 @@
 
 
 // Enable IRQ Interrupts
-static inline void enable_irq(void)
-{
-  asm volatile ("cpsie i" : : : "memory");
-}
+#define ENABLE_IRQ asm volatile ("cpsie i" : : : "memory")
+#define DISABLE_IRQ asm volatile ("cpsid i" : : : "memory")
 
-
-// Disable IRQ Interrupts
-
-static inline void disable_irq(void)
-{
-  asm volatile ("cpsid i" : : : "memory");
-}
 
 typedef struct
 {

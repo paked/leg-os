@@ -5,6 +5,7 @@
 
 .global	g_pfnVectors
 .global	Default_Handler
+.global __ldrex, __strex
 
 /* start address for the initialization values of the .data section.
    defined in linker script */
@@ -516,3 +517,18 @@ PendSV_Handler:
 
   bx lr
 .size PendSV_Handler, .-PendSV_Handler
+
+.type __ldrex, %function
+__ldrex:
+  @ r0 -- Memory address to load
+  ldrex r0, [r0]
+  bx lr
+.size __ldrex, .-__ldrex
+
+.type __strex, %function
+__strex:
+  @r0 -- Memory address to store
+  @r1 -- Value to store
+  strex r0, r1, [r0]
+  bx lr
+.size __strex, .-__strex
