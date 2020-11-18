@@ -510,5 +510,9 @@ PendSV_Handler:
   pop {r4-r11}
   mov sp, r1
 
+  push {lr}
+  bl protect_memory
+  pop {lr}
+
   bx lr
 .size PendSV_Handler, .-PendSV_Handler

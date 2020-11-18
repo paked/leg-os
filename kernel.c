@@ -97,10 +97,10 @@ struct page {
 
 struct page *pages;
 uint32_t pages_count;
+uint32_t pages_metadata_count;
 char *heap_start;
 
-#define PAGE_SIZE 2048
-#define MEM_PER_PAGE (sizeof(struct page) + PAGE_SIZE)
+#define PAGE_SIZE (2048)
 
 uint32_t get_current_pid() {
     return process_current != 0 ? process_current->pid : 0;
@@ -108,8 +108,13 @@ uint32_t get_current_pid() {
 
 void mem_init() {
     // get amount of pages we can fit in memory
-    pages_count = HEAP_SIZE / MEM_PER_PAGE;
+    pages_count = HEAP_SIZE / PAGE_SIZE;
     pages = (struct page *)&end;
+
+    // we need some page-aligned space at the start of the heap to store out
+    // page metadata
+    pages_metadata_count = (pages_count*sizeof(struct page))/PAGE_SIZE + 1;
+    pages_count -= pages_metadata_count;
 
     // clear page metadata to zero
     memset(pages, 0, pages_count * sizeof(struct page));
@@ -119,7 +124,7 @@ void mem_init() {
         pages[i].i = i;
     }
 
-    heap_start = (char *)(pages + pages_count);
+    heap_start = (char*) &end + PAGE_SIZE;
 }
 
 void mem_print_page_info() {
@@ -128,8 +133,8 @@ void mem_print_page_info() {
     printf("page metadata size: %d\n", sizeof(struct page));
     printf("page size: %d\n", PAGE_SIZE);
     printf("heap size: %d\n", HEAP_SIZE);
-    printf("memory per page: %d\n", MEM_PER_PAGE);
-    printf("amount of pages (including metadata) we can fit in memory: %d\n", HEAP_SIZE / MEM_PER_PAGE);
+    printf("amount of pages of metadata we are storing: %d \n", pages_metadata_count);
+    printf("amount of pages (excluding metadata) we can fit in memory: %d\n", pages_count);
 
     for (uint32_t i = 0; i < pages_count; i++) {
         struct page *page = &pages[i];
@@ -200,12 +205,20 @@ int putchar(int c) {
 
 // trigger red led
 void fn_process_1() {
+    int j = 0;
     while (true) {
         for (int i = 0; i < 1000000; i++) {
             asm("nop");
         }
 
         printf("hello\n");
+
+        if (j == 3) {
+            uint32_t* ptr = (uint32_t*) (0x2000c800);
+            *ptr = 10;
+        }
+
+        j += 1;
     }
 }
 
@@ -235,10 +248,11 @@ void process_quit() {
     }
 
     processes[pid - 1].pid = 0;
+
     while (1) {
         asm("nop");
         asm("nop");
-    };
+    }
 }
 
 int create_process(void *func) {
@@ -322,6 +336,43 @@ void kernel_main(void) {
     SCB->SHP[15 - 4] = 0x00;
 
     //
+    // MPU Setup
+    //
+
+    // fall back to the default memory map in privileged mode
+    MPU->CTRL &= ~MPU_CTRL_PRIVDEFENA_Msk;
+    MPU->CTRL |= MPU_CTRL_PRIVDEFENA_Msk;
+
+    // enable the MPU
+    MPU->CTRL &= ~MPU_CTRL_ENABLE_Msk;
+    MPU->CTRL |= MPU_CTRL_ENABLE_Msk;
+
+    // work with the 1st region
+    MPU->RNR &= ~MPU_RNR_REGION_Msk;
+    MPU->RNR |= 1;
+
+    // 0x2000c800 is the 6th page
+
+    // set address of 1st region to 0x2000c800
+    MPU->RBAR &= ~MPU_RBAR_ADDR_Msk;
+    MPU->RBAR |= 0x2000c800;
+
+    // set size to 2048 (11)
+    MPU->RASR &= ~MPU_RASR_SIZE_Msk;
+    MPU->RASR |= (11 - 1) << MPU_RASR_SIZE_Pos;
+
+    // disable all reads and writes, even in privileged mode
+    MPU->RASR &= ~MPU_RASR_AP_Msk;
+    MPU->RASR |= 0b000 << MPU_RASR_AP_Pos;
+
+    // enable region 1
+    MPU->RASR &= ~MPU_RASR_ENABLE_Msk;
+    MPU->RASR |= MPU_RASR_ENABLE_Msk;
+
+    SCB->SHCSR &= ~SCB_SHCSR_MEMFAULTENA_Msk;
+    SCB->SHCSR |= SCB_SHCSR_MEMFAULTENA_Msk;
+
+    //
     // USART setup
     //
 
@@ -385,6 +436,9 @@ struct registers *context_switch(struct registers *registers) {
     return &process_current->registers;
 }
 
+void protect_memory(void) {
+}
+
 void SysTick_Handler(void) {
     // scheduling happens in here, and we choose the next process
 
@@ -407,6 +461,12 @@ void SysTick_Handler(void) {
 void USART2_IRQHandler(void) {
     char recv = (char)(USART_TTY->RDR & 0xFF);
     putchar(recv);
+}
+
+void MemManage_Handler(void) {
+    printf("can't access memory address: 0x%x\n", SCB->MMFAR);
+
+    while (true);
 }
 
 void HardFault_Handler(void) {
