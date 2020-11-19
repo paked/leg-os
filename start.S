@@ -241,9 +241,6 @@ g_pfnVectors:
 .weak	UsageFault_Handler
 .thumb_set UsageFault_Handler,Default_Handler
 
-.weak	SVC_Handler
-.thumb_set SVC_Handler,Default_Handler
-
 .weak	DebugMon_Handler
 .thumb_set DebugMon_Handler,Default_Handler
 
@@ -494,26 +491,46 @@ g_pfnVectors:
 .thumb_set FPU_IRQHandler,Default_Handler
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
 
+.type SVC_Handler, %function
+SVC_Handler:
+  push {lr}
+
+  mrs r0, psp
+  bl SVC_Handler_C
+
+  pop {lr}
+
+  bx lr
+.size SVC_Handler, .-SVC_Handler
+
 .type PendSV_Handler, %function
 PendSV_Handler:
-  mov r0, sp // stack
-  push {r0, r4-r11}
+  // get psp
+  mrs r0, psp
+  mov r1, r0
 
-  mov r0, sp
+  // save r4 to r11 into psp
+  stmfd	r0!, {r4-r11}
 
+  // save sp onto stack
+  sub r0, 4
+  str r1, [r0]
+
+  // run context switch function
   push {lr}
   bl context_switch
   pop {lr}
 
   ldr r1, [r0] // remember the value of sp to restore
-  add r0, #4
-  mov sp, r0
-  pop {r4-r11}
-  mov sp, r1
+  add r0, 4
 
-  push {lr}
-  bl protect_memory
-  pop {lr}
+  // restore r4 to r11 from psp
+  ldmfd	r0!, {r4-r11}
+
+  // set up new sp
+  msr psp, r1
+
+  ldr lr, =0xFFFFFFFD
 
   bx lr
 .size PendSV_Handler, .-PendSV_Handler

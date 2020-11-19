@@ -37,6 +37,11 @@ extern bool __strex(void *addr, uint32_t val);
 
 #define USART_TTY USART2
 
+enum {
+    SYSCALL_TOGGLE_RED,
+    SYSCALL_TOGGLE_GREEN,
+};
+
 void *memset(void *s, int c, size_t len) {
     char *data = (char *)s;
     for (size_t i = 0; i < len; i++) {
@@ -111,6 +116,10 @@ struct registers {
 
 struct process {
     uint32_t pid;
+
+    uint32_t* stack_top;
+    void (*handler)(void);
+
     struct registers registers;
 };
 
@@ -118,8 +127,6 @@ struct process {
 
 struct process *process_current;
 struct process *process_next;
-struct process process_1;
-struct process process_2;
 
 struct page {
     uint32_t i;
@@ -221,6 +228,7 @@ void mem_free_page(void *p) {
 ret:
     ENABLE_IRQ;
 }
+
 // TODO(harrison): should we make this disable int  errupts whien it sends the bits?
 int putchar(int c) {
     // will need a lock on the usart port
@@ -237,37 +245,33 @@ int putchar(int c) {
 
 // trigger red led
 void fn_process_1() {
-    int j = 0;
     while (true) {
+        /*
         take_lock(&lock1);
         printf("hello from process %d\n", get_current_pid());
         release_lock(&lock1);
+        */
 
         for (int i = 0; i < 1000000; i++) {
             asm("nop");
         }
 
-        printf("hello\n");
+        printf("blinking red LED\n");
 
-        if (j == 3) {
-            uint32_t* ptr = (uint32_t*) (0x2000c800);
-            *ptr = 10;
-        }
-
-        j += 1;
+        asm volatile("svc 1");
     }
 }
 
 // trigger green led
 void fn_process_2() {
-    // mem_print_page_info();
+    asm volatile("svc 0");
 
     while (true) {
         for (int i = 0; i < 1000000; i++) {
             asm("nop");
         }
 
-        GPIOE->ODR ^= GPIO_ODR_OD8;
+        asm volatile("svc 0");
     }
 }
 
@@ -291,8 +295,8 @@ void process_quit() {
     }
 }
 
-int create_process(void *func) {
-    //returns a process ID
+//returns a process ID
+int create_process(void (*handler)(void)) {
     DISABLE_IRQ;
     int out = 0;
 
@@ -307,8 +311,12 @@ int create_process(void *func) {
             }
             //later: allocate heap
 
+            processes[i].handler = handler;
+
+            // TODO(Harrison): shouldn't this be PAGE_SIZE/4?
             uint32_t spi = PROCESS_STACK_SIZE - 16;
 
+            processes[i].stack_top = stack_address;
             processes[i].registers.sp = (int32_t)&stack_address[spi];
             // process_1_stack[spi + 0] = 0x0;                     // r0
             // process_1_stack[spi + 1] = 0x0;                     // r1
@@ -316,11 +324,12 @@ int create_process(void *func) {
             // process_1_stack[spi + 3] = 0x0;                     // r3
             // process_1_stack[spi + 4] = 0x0;                     // r12
             stack_address[spi + 5] = (uint32_t)&process_quit; // lr
-            stack_address[spi + 6] = (uint32_t)func;          // pc
+            stack_address[spi + 6] = (uint32_t)handler;          // pc
             stack_address[spi + 7] = 0x01000000;              // xpsr
 
             //register the process with the scheduler.
             out = processes[i].pid = pid;
+
             goto ret;
         }
     }
@@ -330,12 +339,24 @@ ret:
     return out;
 }
 
-void main_user_process() {
-    create_process(&fn_process_1);
-    create_process(&fn_process_1);
-    create_process(&fn_process_1);
-    create_process(&fn_process_2);
-    asm("nop");
+// switches to the first process
+void scheduler_start() {
+    SysTick->CTRL |= SysTick_CTRL_ENABLE_Msk;
+
+    if (processes[0].pid == 0) {
+        printf("ERROR: no processes started. Please start a process.\n");
+
+        return;
+    }
+
+    // switch to first process
+    process_current = &processes[0];
+
+    __set_PSP((uint32_t) (process_current->stack_top + PROCESS_STACK_SIZE));
+    __set_CONTROL(0x03); // Switch to PSP, unprivilleged mode
+    __ISB();
+
+    process_current->handler();
 }
 
 void kernel_main(void) {
@@ -365,18 +386,23 @@ void kernel_main(void) {
         SysTick_CTRL_CLKSOURCE_Msk | // use system clock (48MHz by now)
         SysTick_CTRL_TICKINT_Msk;    // trigger interrupt at end of count down
 
-    // trigger an interrupt on zero
-    SysTick->CTRL |= SysTick_CTRL_ENABLE_Msk;
-
     // set PendSV priority to lowest possible
     SCB->SHP[14 - 4] = 0xFF;
     // set SysTick priority to highest possible
     SCB->SHP[15 - 4] = 0x00;
 
+    // Privilege level setup
+    uint32_t ctrl = __get_CONTROL();
+    ctrl &= ~CONTROL_nPRIV_Msk;
+    ctrl |= CONTROL_nPRIV_Msk; // thread mode has unprivileged access
+
+    ctrl &= ~CONTROL_SPSEL_Msk;
+    ctrl |= CONTROL_SPSEL_Msk; // use different stacks for main and not main process
+
     //
     // MPU Setup
     //
-
+/*
     // fall back to the default memory map in privileged mode
     MPU->CTRL &= ~MPU_CTRL_PRIVDEFENA_Msk;
     MPU->CTRL |= MPU_CTRL_PRIVDEFENA_Msk;
@@ -409,7 +435,7 @@ void kernel_main(void) {
 
     SCB->SHCSR &= ~SCB_SHCSR_MEMFAULTENA_Msk;
     SCB->SHCSR |= SCB_SHCSR_MEMFAULTENA_Msk;
-
+*/
     //
     // USART setup
     //
@@ -455,9 +481,14 @@ void kernel_main(void) {
 
     // HardFault_Handler();
 #endif
-    create_process(&main_user_process);
+    printf("Booting leg-os kernel.\n");
+    create_process(&fn_process_1);
+    create_process(&fn_process_2);
+
+    scheduler_start();
+
     while (true) {
-        putchar('.');
+        asm("nop");
     }
 }
 
@@ -472,12 +503,8 @@ struct registers *context_switch(struct registers *registers) {
     return &process_current->registers;
 }
 
-void protect_memory(void) {
-}
-
 void SysTick_Handler(void) {
     // scheduling happens in here, and we choose the next process
-
     int prev_task_index = process_current != 0 ? process_current->pid - 1 : 0;
     int check_process = prev_task_index + 1;
     for (int i = 0; i < MAX_PROCESSES; i++) {
@@ -487,11 +514,31 @@ void SysTick_Handler(void) {
         }
         check_process = (check_process + 1) % MAX_PROCESSES;
     }
+
     if (process_next != 0) {
         // trigger PendSV
         SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk;
     }
-    //do nothing as no tasks are running
+
+    // do nothing as no tasks are running
+}
+
+void SVC_Handler_C(size_t* sp) {
+    char* pc = (char*) sp[6];
+
+    uint8_t svc = *(pc - 2);
+
+    switch (svc) {
+        case SYSCALL_TOGGLE_RED:
+            GPIOB->ODR ^= GPIO_ODR_OD2;
+
+            break;
+        case SYSCALL_TOGGLE_GREEN:
+            GPIOE->ODR ^= GPIO_ODR_OD8;
+            break;
+        default:
+            printf("ERROR: unknown syscall %d\n", svc);
+    }
 }
 
 void USART2_IRQHandler(void) {
@@ -506,9 +553,8 @@ void MemManage_Handler(void) {
 }
 
 void HardFault_Handler(void) {
-    DUMP_REGS;
+    // DUMP_REGS;
     printf("Hard Fault - Possibly Unrecoverable :(\n");
 
-    while (true)
-        ;
+    while (true);
 }

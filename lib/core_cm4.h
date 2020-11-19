@@ -14,11 +14,52 @@
 #define     __OM     volatile            /*! Defines 'write only' structure member permissions */
 #define     __IOM    volatile            /*! Defines 'read / write' structure member permissions */
 
+/* CONTROL Register Definitions */
+#define CONTROL_FPCA_Pos                    2U                                            /*!< CONTROL: FPCA Position */
+#define CONTROL_FPCA_Msk                   (1UL << CONTROL_FPCA_Pos)                      /*!< CONTROL: FPCA Mask */
+
+#define CONTROL_SPSEL_Pos                   1U                                            /*!< CONTROL: SPSEL Position */
+#define CONTROL_SPSEL_Msk                  (1UL << CONTROL_SPSEL_Pos)                     /*!< CONTROL: SPSEL Mask */
+
+#define CONTROL_nPRIV_Pos                   0U                                            /*!< CONTROL: nPRIV Position */
+#define CONTROL_nPRIV_Msk                  (1UL /*<< CONTROL_nPRIV_Pos*/)                 /*!< CONTROL: nPRIV Mask */
 
 // Enable IRQ Interrupts
 #define ENABLE_IRQ asm volatile ("cpsie i" : : : "memory")
 #define DISABLE_IRQ asm volatile ("cpsid i" : : : "memory")
 
+__attribute__( ( always_inline ) ) static inline void __set_CONTROL(uint32_t control) {
+  asm volatile ("MSR control, %0" : : "r" (control) : "memory");
+}
+
+__attribute__( ( always_inline ) ) static inline uint32_t __get_CONTROL(void)
+{
+  uint32_t result;
+
+  asm volatile ("MRS %0, control" : "=r" (result) );
+  return(result);
+}
+
+/**
+  \brief   Instruction Synchronization Barrier
+  \details Instruction Synchronization Barrier flushes the pipeline in the processor,
+           so that all instructions following the ISB are fetched from cache or memory,
+           after the instruction has been completed.
+ */
+static inline void __ISB(void)
+{
+  asm volatile ("isb 0xF":::"memory");
+}
+
+/**
+  \brief   Set Process Stack Pointer
+  \details Assigns the given value to the Process Stack Pointer (PSP).
+  \param [in]    topOfProcStack  Process Stack Pointer value to set
+ */
+static inline void __set_PSP(uint32_t topOfProcStack)
+{
+  asm volatile ("MSR psp, %0" : : "r" (topOfProcStack) : );
+}
 
 typedef struct
 {
