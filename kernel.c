@@ -392,17 +392,13 @@ void scheduler_start() {
     // switch to first process
     process_current = &processes[0];
 
+    // sets PSP, switches privileges, and then calls the handler function.
+    // does not return
+    // NOTE(harrison): if we ever want to use the system stack again, we should
+    // handle this better.
     parasite_process(
             (char*) (process_current->stack_top + PROCESS_STACK_SIZE),
             process_current->handler);
-
-    /*
-    __set_PSP((uint32_t) (process_current->stack_top + PROCESS_STACK_SIZE));
-    __set_CONTROL(0x03); // Switch to PSP, unprivilleged mode
-    __ISB();
-
-    process_current->handler();
-    */
 }
 
 void kernel_main(void) {
@@ -445,11 +441,11 @@ void kernel_main(void) {
     ctrl &= ~CONTROL_SPSEL_Msk;
     ctrl |= CONTROL_SPSEL_Msk; // use different stacks for main and not main process
 
-    /*
     //
     // MPU Setup
     //
-    // fall back to the default memory map in privileged mode
+
+    // fall back to default system memory map in privileged mode
     MPU->CTRL &= ~MPU_CTRL_PRIVDEFENA_Msk;
     MPU->CTRL |= MPU_CTRL_PRIVDEFENA_Msk;
 
@@ -457,36 +453,7 @@ void kernel_main(void) {
     MPU->CTRL &= ~MPU_CTRL_ENABLE_Msk;
     MPU->CTRL |= MPU_CTRL_ENABLE_Msk;
 
-    // work with the 1st region
-    MPU->RNR &= ~MPU_RNR_REGION_Msk;
-    MPU->RNR |= 1;
-
-    // 0x2000c800 is the 6th page
-
-    // set address of 1st region to 0x2000c800
-    MPU->RBAR &= ~MPU_RBAR_ADDR_Msk;
-    MPU->RBAR |= 0x2000c800;
-
-    // set size to 2048 (11)
-    MPU->RASR &= ~MPU_RASR_SIZE_Msk;
-    MPU->RASR |= (11 - 1) << MPU_RASR_SIZE_Pos;
-
-    // disable all reads and writes, even in privileged mode
-    MPU->RASR &= ~MPU_RASR_AP_Msk;
-    MPU->RASR |= 0b000 << MPU_RASR_AP_Pos;
-
-    // enable region 1
-    MPU->RASR &= ~MPU_RASR_ENABLE_Msk;
-    MPU->RASR |= MPU_RASR_ENABLE_Msk;
-    */
-
-    MPU->CTRL &= ~MPU_CTRL_PRIVDEFENA_Msk;
-    MPU->CTRL |= MPU_CTRL_PRIVDEFENA_Msk;
-
-    // enable the MPU
-    MPU->CTRL &= ~MPU_CTRL_ENABLE_Msk;
-    MPU->CTRL |= MPU_CTRL_ENABLE_Msk;
-
+    // raise MemManage fault on memory errors
     SCB->SHCSR &= ~SCB_SHCSR_MEMFAULTENA_Msk;
     SCB->SHCSR |= SCB_SHCSR_MEMFAULTENA_Msk;
 
