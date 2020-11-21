@@ -7,7 +7,7 @@ CC=$(PREFIX)-gcc
 LD=$(PREFIX)-ld
 OBJCOPY=$(PREFIX)-objcopy
 
-OBJ=start.o kernel.o
+OBJ=start.o kernel.o user.o syscall.o
 
 %.o: %.c
 	$(CC) $(CFLAGS) -o $@ -c $<

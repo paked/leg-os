@@ -6,6 +6,7 @@
 .global	g_pfnVectors
 .global	Default_Handler
 .global __ldrex, __strex
+.global parasite_process
 
 /* start address for the initialization values of the .data section.
    defined in linker script */
@@ -549,3 +550,19 @@ __strex:
   strex r0, r1, [r0]
   bx lr
 .size __strex, .-__strex
+
+@ parasite_process - takes over the main thread, and makes it start
+@ running a process. switches stacks, prvilege levels, and starts
+@ running the relevant function
+@ called like: parasite_process(sp, handler);
+.type parasite_process, %function
+parasite_process:
+  msr psp, r0
+  mov r2, 0x03
+  msr control, r2
+
+  isb 0xF
+  dsb 0xF
+
+  bx r1
+.size parasite_process, .-__strex

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, Matt Redfearn
+ * Copyright (c) 2016, Matt Redfearn. 2020, Harrison Shoebridge and Obi Symons
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -32,17 +32,21 @@
 #include <stdarg.h>
 #include <stddef.h>
 
+#ifndef SIMPLE_PRINTF_PUTCHAR
+
+#error "you need to provide a SIMPLE_PRINTF_PUTCHAR function"
+
+#endif
+
 #define printf simple_printf
 #define sprintf simple_sprintf
-
-int putchar(int c);
 
 static void simple_outputchar(char **str, char c) {
     if (str) {
         **str = c;
         ++(*str);
     } else {
-        putchar(c);
+        SIMPLE_PRINTF_PUTCHAR(c);
     }
 }
 
@@ -325,7 +329,7 @@ static int simple_vsprintf(char **out, char *format, va_list ap) {
     return pc;
 }
 
-int simple_printf(char *fmt, ...) {
+static int simple_printf(char *fmt, ...) {
     va_list ap;
     int r;
 
@@ -336,7 +340,8 @@ int simple_printf(char *fmt, ...) {
     return r;
 }
 
-int simple_sprintf(char *buf, char *fmt, ...) {
+/*
+static int simple_sprintf(char *buf, char *fmt, ...) {
     va_list ap;
     int r;
 
@@ -346,6 +351,7 @@ int simple_sprintf(char *buf, char *fmt, ...) {
 
     return r;
 }
+*/
 
 #ifdef TEST
 

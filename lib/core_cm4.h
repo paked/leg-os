@@ -46,20 +46,22 @@ __attribute__( ( always_inline ) ) static inline uint32_t __get_CONTROL(void)
            so that all instructions following the ISB are fetched from cache or memory,
            after the instruction has been completed.
  */
-static inline void __ISB(void)
-{
-  asm volatile ("isb 0xF":::"memory");
-}
+
+#define __ISB() asm volatile ("isb 0xF":::"memory");
+
+/**
+  \brief   Data Synchronization Barrier
+  \details Acts as a special kind of Data Memory Barrier.
+           It completes when all explicit memory accesses before this instruction complete.
+ */
+#define __DSB() asm volatile ("dsb 0xF":::"memory");
 
 /**
   \brief   Set Process Stack Pointer
   \details Assigns the given value to the Process Stack Pointer (PSP).
   \param [in]    topOfProcStack  Process Stack Pointer value to set
  */
-static inline void __set_PSP(uint32_t topOfProcStack)
-{
-  asm volatile ("MSR psp, %0" : : "r" (topOfProcStack) : );
-}
+#define __set_PSP(topOfProcStack) asm volatile ("MSR psp, %0" : : "r" (topOfProcStack) : )
 
 typedef struct
 {

@@ -2,11 +2,31 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// #define TEST // define if testing usart printing
-#include "printf.c"
 #include "stm32l476xx.h"
 
+#include "user.h"
+
 #define USART_TTY USART2
+// TODO(harrison): should we make this disable int  errupts whien it sends the bits?
+int putchar(int c) {
+    // will need a lock on the usart port
+
+    if (c == '\n') {
+        putchar('\r');
+    }
+    while (!(USART_TTY->ISR & USART_ISR_TC)) {}
+
+    USART_TTY->TDR = (USART_TTY->TDR & ~USART_TDR_TDR_Msk) | (uint32_t)(c);
+
+    return 0;
+}
+
+#define SIMPLE_PRINTF_PUTCHAR putchar
+
+// #define TEST // define if testing usart printing
+#include "printf.h"
+
+#define printk simple_printf
 
 #define DUMP_REGS                                        \
     uint32_t *stack_pointer;                             \
@@ -15,13 +35,13 @@
                  : [ result ] "=r"(stack_pointer));      \
     asm volatile("mrs %[result], APSR"                   \
                  : [ result ] "=r"(flags_reg));          \
-    printf("General Register Dump\n");                   \
+    printk("General Register Dump\n");                   \
     for (uint32_t i = 0; i < 13; i++) {                  \
-        printf("r%d:\t0x%x\n", i, stack_pointer[i]);     \
+        printk("r%d:\t0x%x\n", i, stack_pointer[i]);     \
     }                                                    \
-    printf("lr:\t0x%x\n", stack_pointer[13]);            \
-    printf("sp:\t0x%x\n", stack_pointer);                \
-    printf("flags:\t0x%x\n", flags_reg);
+    printk("lr:\t0x%x\n", stack_pointer[13]);            \
+    printk("sp:\t0x%x\n", stack_pointer);                \
+    printk("flags:\t0x%x\n", flags_reg);
 
 extern uint32_t _sstack;
 extern uint32_t _estack;
@@ -29,6 +49,7 @@ extern uint32_t end;
 
 extern uint32_t __ldrex(void *addr);
 extern bool __strex(void *addr, uint32_t val);
+extern void parasite_process(char* sp, void (*handler)(void));
 
 #define STACK_SIZE ((&_estack - &_sstack) * sizeof(uint32_t))
 #define HEAP_SIZE (96000 - STACK_SIZE)
@@ -40,6 +61,7 @@ extern bool __strex(void *addr, uint32_t val);
 enum {
     SYSCALL_TOGGLE_RED,
     SYSCALL_TOGGLE_GREEN,
+    SYSCALL_PUTCHAR,
 };
 
 void *memset(void *s, int c, size_t len) {
@@ -169,19 +191,19 @@ void mem_init() {
 void mem_print_page_info() {
     char preview[50];
 
-    printf("page metadata size: %d\n", sizeof(struct page));
-    printf("page size: %d\n", PAGE_SIZE);
-    printf("heap size: %d\n", HEAP_SIZE);
-    printf("amount of pages of metadata we are storing: %d \n", pages_metadata_count);
-    printf("amount of pages (excluding metadata) we can fit in memory: %d\n", pages_count);
+    printk("page metadata size: %d\n", sizeof(struct page));
+    printk("page size: %d\n", PAGE_SIZE);
+    printk("heap size: %d\n", HEAP_SIZE);
+    printk("amount of pages of metadata we are storing: %d \n", pages_metadata_count);
+    printk("amount of pages (excluding metadata) we can fit in memory: %d\n", pages_count);
 
     for (uint32_t i = 0; i < pages_count; i++) {
         struct page *page = &pages[i];
 
-        printf("i=%d allocated: %s\n", page->i, page->is_allocated ? "T\0" : "F\0");
+        printk("i=%d allocated: %s\n", page->i, page->is_allocated ? "T\0" : "F\0");
         if (page->is_allocated) {
             memcpy(preview, heap_start + (page->i * PAGE_SIZE), 46);
-            printf("%s\n", preview);
+            printk("%s\n", preview);
         }
     }
 }
@@ -202,7 +224,7 @@ void *mem_get_page(uint32_t owner) {
         }
     }
 
-    printf("ERROR: no pages left\n");
+    printk("ERROR: no pages left\n");
 
 ret:
     ENABLE_IRQ;
@@ -218,7 +240,7 @@ void mem_free_page(void *p) {
 
     uint32_t offs = (uint32_t)p - (uint32_t)heap_start;
     if (offs % PAGE_SIZE != 0) {
-        printf("ERROR: trying to free a page which does not fall on a page boundary\n");
+        printk("ERROR: trying to free a page which does not fall on a page boundary\n");
         goto ret;
     }
 
@@ -227,52 +249,6 @@ void mem_free_page(void *p) {
 
 ret:
     ENABLE_IRQ;
-}
-
-// TODO(harrison): should we make this disable int  errupts whien it sends the bits?
-int putchar(int c) {
-    // will need a lock on the usart port
-
-    if (c == '\n') {
-        putchar('\r');
-    }
-    while (!(USART_TTY->ISR & USART_ISR_TC)) {}
-
-    USART_TTY->TDR = (USART_TTY->TDR & ~USART_TDR_TDR_Msk) | (uint32_t)(c);
-
-    return 0;
-}
-
-// trigger red led
-void fn_process_1() {
-    while (true) {
-        /*
-        take_lock(&lock1);
-        printf("hello from process %d\n", get_current_pid());
-        release_lock(&lock1);
-        */
-
-        for (int i = 0; i < 1000000; i++) {
-            asm("nop");
-        }
-
-        printf("blinking red LED\n");
-
-        asm volatile("svc 1");
-    }
-}
-
-// trigger green led
-void fn_process_2() {
-    asm volatile("svc 0");
-
-    while (true) {
-        for (int i = 0; i < 1000000; i++) {
-            asm("nop");
-        }
-
-        asm volatile("svc 0");
-    }
 }
 
 #define MAX_PROCESSES 16
@@ -306,7 +282,7 @@ int create_process(void (*handler)(void)) {
             uint32_t *stack_address = (uint32_t *)mem_get_page(pid);
 
             if (stack_address == 0) {
-                printf("Failed to allocate a stack for a new process");
+                printk("Failed to allocate a stack for a new process");
                 goto ret;
             }
             //later: allocate heap
@@ -333,10 +309,74 @@ int create_process(void (*handler)(void)) {
             goto ret;
         }
     }
-    printf("16 tasks are already running!");
+    printk("16 tasks are already running!");
 ret:
     ENABLE_IRQ;
     return out;
+}
+
+void protect_memory() {
+    // enable the MPU
+    MPU->CTRL &= ~MPU_CTRL_ENABLE_Msk;
+
+    int region = 0;
+    MPU->RNR &= ~MPU_RNR_REGION_Msk;
+    MPU->RNR |= region;
+
+    MPU->RBAR &= ~MPU_RBAR_ADDR_Msk;
+    // MPU->RBAR |= (uint32_t) heap_start + PAGE_SIZE*region;
+    MPU->RBAR |= 0x0;
+
+    MPU->RASR &= ~MPU_RASR_SIZE_Msk;
+    MPU->RASR |= (29 - 1) << MPU_RASR_SIZE_Pos;
+
+    MPU->RASR &= ~MPU_RASR_AP_Msk;
+    MPU->RASR |= 0b011 << MPU_RASR_AP_Pos;
+
+    MPU->RASR &= ~MPU_RASR_ENABLE_Msk;
+    MPU->RASR |= MPU_RASR_ENABLE_Msk;
+
+    region = 1;
+    MPU->RNR &= ~MPU_RNR_REGION_Msk;
+    MPU->RNR |= region;
+
+    MPU->RBAR &= ~MPU_RBAR_ADDR_Msk;
+    // MPU->RBAR |= (uint32_t) heap_start + PAGE_SIZE*region;
+    MPU->RBAR |= 0xE0000000;
+
+    MPU->RASR &= ~MPU_RASR_SIZE_Msk;
+    MPU->RASR |= (9 - 1) << MPU_RASR_SIZE_Pos;
+
+    MPU->RASR &= ~MPU_RASR_AP_Msk;
+    MPU->RASR |= 0b011 << MPU_RASR_AP_Pos;
+
+    MPU->RASR &= ~MPU_RASR_ENABLE_Msk;
+    MPU->RASR |= MPU_RASR_ENABLE_Msk;
+
+    int max_regions = 5;
+
+    for (int region = 2; region < max_regions; region++) {
+        MPU->RNR &= ~MPU_RNR_REGION_Msk;
+        MPU->RNR |= region;
+
+        MPU->RBAR &= ~MPU_RBAR_ADDR_Msk;
+        MPU->RBAR |= (uint32_t) heap_start + PAGE_SIZE*(region-2);
+
+        MPU->RASR &= ~MPU_RASR_SIZE_Msk;
+        MPU->RASR |= (11 - 1) << MPU_RASR_SIZE_Pos;
+
+        // enable reads and writes in unprivileged mode
+        MPU->RASR &= ~MPU_RASR_AP_Msk;
+        MPU->RASR |= 0b011 << MPU_RASR_AP_Pos;
+
+        MPU->RASR &= ~MPU_RASR_ENABLE_Msk;
+        MPU->RASR |= MPU_RASR_ENABLE_Msk;
+    }
+
+    MPU->CTRL |= MPU_CTRL_ENABLE_Msk;
+
+    __ISB();
+    __DSB();
 }
 
 // switches to the first process
@@ -344,7 +384,7 @@ void scheduler_start() {
     SysTick->CTRL |= SysTick_CTRL_ENABLE_Msk;
 
     if (processes[0].pid == 0) {
-        printf("ERROR: no processes started. Please start a process.\n");
+        printk("ERROR: no processes started. Please start a process.\n");
 
         return;
     }
@@ -352,11 +392,17 @@ void scheduler_start() {
     // switch to first process
     process_current = &processes[0];
 
+    parasite_process(
+            (char*) (process_current->stack_top + PROCESS_STACK_SIZE),
+            process_current->handler);
+
+    /*
     __set_PSP((uint32_t) (process_current->stack_top + PROCESS_STACK_SIZE));
     __set_CONTROL(0x03); // Switch to PSP, unprivilleged mode
     __ISB();
 
     process_current->handler();
+    */
 }
 
 void kernel_main(void) {
@@ -399,10 +445,10 @@ void kernel_main(void) {
     ctrl &= ~CONTROL_SPSEL_Msk;
     ctrl |= CONTROL_SPSEL_Msk; // use different stacks for main and not main process
 
+    /*
     //
     // MPU Setup
     //
-/*
     // fall back to the default memory map in privileged mode
     MPU->CTRL &= ~MPU_CTRL_PRIVDEFENA_Msk;
     MPU->CTRL |= MPU_CTRL_PRIVDEFENA_Msk;
@@ -432,10 +478,18 @@ void kernel_main(void) {
     // enable region 1
     MPU->RASR &= ~MPU_RASR_ENABLE_Msk;
     MPU->RASR |= MPU_RASR_ENABLE_Msk;
+    */
+
+    MPU->CTRL &= ~MPU_CTRL_PRIVDEFENA_Msk;
+    MPU->CTRL |= MPU_CTRL_PRIVDEFENA_Msk;
+
+    // enable the MPU
+    MPU->CTRL &= ~MPU_CTRL_ENABLE_Msk;
+    MPU->CTRL |= MPU_CTRL_ENABLE_Msk;
 
     SCB->SHCSR &= ~SCB_SHCSR_MEMFAULTENA_Msk;
     SCB->SHCSR |= SCB_SHCSR_MEMFAULTENA_Msk;
-*/
+
     //
     // USART setup
     //
@@ -481,9 +535,14 @@ void kernel_main(void) {
 
     // HardFault_Handler();
 #endif
-    printf("Booting leg-os kernel.\n");
+    printk("Booting leg-os kernel.\n");
+
     create_process(&fn_process_1);
     create_process(&fn_process_2);
+
+    mem_print_page_info();
+
+    protect_memory();
 
     scheduler_start();
 
@@ -524,6 +583,7 @@ void SysTick_Handler(void) {
 }
 
 void SVC_Handler_C(size_t* sp) {
+    char r0 = (char) sp[0];
     char* pc = (char*) sp[6];
 
     uint8_t svc = *(pc - 2);
@@ -536,8 +596,11 @@ void SVC_Handler_C(size_t* sp) {
         case SYSCALL_TOGGLE_GREEN:
             GPIOE->ODR ^= GPIO_ODR_OD8;
             break;
+        case SYSCALL_PUTCHAR:
+            putchar(r0);
+            break;
         default:
-            printf("ERROR: unknown syscall %d\n", svc);
+            printk("ERROR: unknown syscall %d\n", svc);
     }
 }
 
@@ -547,14 +610,15 @@ void USART2_IRQHandler(void) {
 }
 
 void MemManage_Handler(void) {
-    printf("can't access memory address: 0x%x\n", SCB->MMFAR);
+    printk("what\n");
+    printk("can't access memory address: 0x%x\n", SCB->MMFAR);
 
     while (true);
 }
 
 void HardFault_Handler(void) {
     // DUMP_REGS;
-    printf("Hard Fault - Possibly Unrecoverable :(\n");
+    printk("Hard Fault - Possibly Unrecoverable :(\n");
 
     while (true);
 }
