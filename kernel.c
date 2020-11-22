@@ -319,56 +319,72 @@ void protect_memory() {
     // enable the MPU
     MPU->CTRL &= ~MPU_CTRL_ENABLE_Msk;
 
-    int region = 0;
+    //
+    // Access to flash
+    //
+    int region = 6;
     MPU->RNR &= ~MPU_RNR_REGION_Msk;
     MPU->RNR |= region;
 
     MPU->RBAR &= ~MPU_RBAR_ADDR_Msk;
-    // MPU->RBAR |= (uint32_t) heap_start + PAGE_SIZE*region;
     MPU->RBAR |= 0x0;
 
     MPU->RASR &= ~MPU_RASR_SIZE_Msk;
     MPU->RASR |= (29 - 1) << MPU_RASR_SIZE_Pos;
 
     MPU->RASR &= ~MPU_RASR_AP_Msk;
-    MPU->RASR |= 0b011 << MPU_RASR_AP_Pos;
+    MPU->RASR |= 0b010 << MPU_RASR_AP_Pos;
 
     MPU->RASR &= ~MPU_RASR_ENABLE_Msk;
     MPU->RASR |= MPU_RASR_ENABLE_Msk;
 
-    region = 1;
-    MPU->RNR &= ~MPU_RNR_REGION_Msk;
-    MPU->RNR |= region;
+    int stack_pages_count = ((uint32_t)&_estack - (uint32_t)&_sstack)/PAGE_SIZE;
 
-    MPU->RBAR &= ~MPU_RBAR_ADDR_Msk;
-    // MPU->RBAR |= (uint32_t) heap_start + PAGE_SIZE*region;
-    MPU->RBAR |= 0xE0000000;
+    // NOTE(harrison): cant_access holds one byte for each possible region
+    // which can be allocated. bits set are subregions which can't be accessed.
+    // TODO(harrison): calculate 6 based on the actual amount of pages needed
+    uint8_t cant_access[6] = {0};
 
-    MPU->RASR &= ~MPU_RASR_SIZE_Msk;
-    MPU->RASR |= (9 - 1) << MPU_RASR_SIZE_Pos;
+    for (int j = 0; j < pages_count; j++) {
+        int i = stack_pages_count + pages_metadata_count + j;
+        int region = i / 6;
+        int bit = i % 8;
+        bool no_rw = pages[j].owner != process_current->pid;
 
-    MPU->RASR &= ~MPU_RASR_AP_Msk;
-    MPU->RASR |= 0b011 << MPU_RASR_AP_Pos;
+        cant_access[region] |= no_rw << bit;
+    }
 
-    MPU->RASR &= ~MPU_RASR_ENABLE_Msk;
-    MPU->RASR |= MPU_RASR_ENABLE_Msk;
+    // NOTE(harrison): update these two at the same time.
+    int region_rasr_size = 14 - 1; // size of region is 2^(rasr_size + 1)
+    int region_size = PAGE_SIZE*8; // = 2^14
 
-    int max_regions = 5;
+    for (int i = 0; i < 6; i++) {
+        uint8_t protection = cant_access[i];
 
-    for (int region = 2; region < max_regions; region++) {
+        // TODO(harrison): skip and reset regions when we need to
+
         MPU->RNR &= ~MPU_RNR_REGION_Msk;
-        MPU->RNR |= region;
+        MPU->RNR |= i;
 
         MPU->RBAR &= ~MPU_RBAR_ADDR_Msk;
-        MPU->RBAR |= (uint32_t) heap_start + PAGE_SIZE*(region-2);
+        MPU->RBAR |= (uint32_t) &_sstack + region_size * i;
 
         MPU->RASR &= ~MPU_RASR_SIZE_Msk;
-        MPU->RASR |= (11 - 1) << MPU_RASR_SIZE_Pos;
+        MPU->RASR |= region_rasr_size << MPU_RASR_SIZE_Pos;
 
         // enable reads and writes in unprivileged mode
         MPU->RASR &= ~MPU_RASR_AP_Msk;
         MPU->RASR |= 0b011 << MPU_RASR_AP_Pos;
 
+        // set up subregions
+        MPU->RASR &= ~MPU_RASR_SRD_Msk;
+        MPU->RASR |= protection << MPU_RASR_SRD_Pos;
+
+        // enable subregions
+        MPU->RASR &= ~MPU_RASR_S_Msk;
+        MPU->RASR |= MPU_RASR_S_Msk;
+
+        // enable region
         MPU->RASR &= ~MPU_RASR_ENABLE_Msk;
         MPU->RASR |= MPU_RASR_ENABLE_Msk;
     }
@@ -391,6 +407,8 @@ void scheduler_start() {
 
     // switch to first process
     process_current = &processes[0];
+
+    protect_memory();
 
     // sets PSP, switches privileges, and then calls the handler function.
     // does not return
@@ -509,8 +527,6 @@ void kernel_main(void) {
 
     mem_print_page_info();
 
-    protect_memory();
-
     scheduler_start();
 
     while (true) {
@@ -577,7 +593,6 @@ void USART2_IRQHandler(void) {
 }
 
 void MemManage_Handler(void) {
-    printk("what\n");
     printk("can't access memory address: 0x%x\n", SCB->MMFAR);
 
     while (true);

@@ -33,7 +33,7 @@ ENTRY(Reset_Handler)
 
 /* Highest address of the user mode stack */
 /* _estack = 0x20018000; */    /* end of RAM */
-Stack_Size = 2048 * 4; /* 2048 words of stack on main thread */
+Stack_Size = 2048 * 1; /* 2048 words of stack on main thread */
 /* Generate a link error if heap and stack don't fit into RAM */
 _Min_Heap_Size = 0x200;      /* required amount of heap  */
 /* _Min_Stack_Size = 0x400; */ /* required amount of stack */
@@ -141,7 +141,7 @@ SECTIONS
     . = ALIGN(2048); /* we need stack and heap to be aligned to our "page size" */
     _ebss = .;         /* define a global symbol at bss end */
     __bss_end__ = _ebss;
-  } >RAM
+  } >RAM2
 
   .stack :
   {

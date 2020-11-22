@@ -522,6 +522,10 @@ PendSV_Handler:
   bl context_switch
   pop {lr}
 
+  push {r0, r1}
+  bl protect_memory
+  pop {r0, r1}
+
   ldr r1, [r0] // remember the value of sp to restore
   add r0, 4
 

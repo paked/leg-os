@@ -3,6 +3,8 @@
 #include "syscall.h"
 
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 int user_putchar(int c);
 
