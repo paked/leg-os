@@ -235,6 +235,101 @@ void *mem_get_user_page() {
     return mem_get_page(get_current_pid());
 }
 
+#define MALLOC_HEADER_MAGIC (0xD0BEDEAD)
+struct malloc_header {
+    struct malloc_header *prev;
+    struct malloc_header *next;
+    uint32_t is_allocated;
+    uint32_t size;
+    uint32_t magic;
+};
+
+char* malloc_heap = 0;
+struct malloc_header *malloc_heap_first;
+void* kmalloc(uint32_t size) {
+    if (malloc_heap == 0) {
+        malloc_heap = mem_get_page(0);
+
+        if (malloc_heap == 0) {
+            printk("ERROR: can't get page for malloc-ing\n");
+
+            return 0;
+        }
+
+        malloc_heap_first = (struct malloc_header*) malloc_heap;
+        malloc_heap_first->magic = MALLOC_HEADER_MAGIC;
+        malloc_heap_first->prev = 0;
+        malloc_heap_first->next = 0;
+        malloc_heap_first->is_allocated = false;
+        malloc_heap_first->size = PAGE_SIZE;
+    }
+
+    size += sizeof(struct malloc_header);
+
+    struct malloc_header *best = 0;
+    uint32_t best_size = 0xFFFFFFFF;
+
+    for (struct malloc_header *curr = malloc_heap_first; curr != 0; curr = curr->next) {
+        if (!curr->is_allocated && size < curr->size) {
+            best = curr;
+            best_size = curr->size;
+        }
+    }
+
+    if (best == 0) {
+        printk("ERROR: can't malloc %d (no space)\n", size);
+
+        return 0;
+    }
+
+    // split header
+    if (best_size - size > 2 * sizeof(struct malloc_header)) {
+        best->size = size;
+        struct malloc_header* split = (struct malloc_header*) (((char*) best) + best->size);
+        split->magic = MALLOC_HEADER_MAGIC;
+        split->size = best_size - size;
+        split->is_allocated = false;
+
+        best->next = split;
+        split->prev = best;
+        split->next = 0;
+    }
+
+    best->is_allocated = true;
+
+    return best + 1;
+}
+
+void kfree(void* loc) {
+    // get header
+    struct malloc_header* header = loc - sizeof(struct malloc_header);
+    if (header->magic != MALLOC_HEADER_MAGIC) {
+        printk("ERROR: this isn't the originally returned address\n");
+
+        return;
+    }
+
+    header->is_allocated = false;
+}
+
+void kmalloc_print_info() {
+    if (malloc_heap == 0) {
+        printk("heap not allocated\n");
+
+        return;
+    }
+
+    for (struct malloc_header *curr = malloc_heap_first; curr != 0; curr = curr->next) {
+        if (curr->magic != MALLOC_HEADER_MAGIC) {
+            printk("ERROR: iterating through something which isn't a malloc header\n");
+
+            return;
+        }
+
+        printk("entry: size=%d is_allocated=%d\n", curr->size, curr->is_allocated);
+    }
+}
+
 void mem_free_page(void *p) {
     DISABLE_IRQ;
 
