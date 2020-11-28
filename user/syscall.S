@@ -3,7 +3,7 @@
 .fpu softvfp
 .thumb
 
-.global sys_putchar, sys_toggle_red, sys_toggle_green, sys_micros
+.global sys_putchar, sys_toggle_red, sys_toggle_green, sys_millis
 
 .type sys_toggle_red, %function
 sys_toggle_red:
@@ -27,9 +27,9 @@ sys_putchar:
 .size sys_putchar, .-sys_putchar
 
 
-.type sys_micros, %function
-sys_micros:
+.type sys_millis, %function
+sys_millis:
   svc 3
 
   bx lr
-.size sys_micros, .-sys_micros
+.size sys_millis, .-sys_millis

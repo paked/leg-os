@@ -23,15 +23,17 @@ int user_putchar(int c) {
 // trigger red led
 void fn_process_1() {
     while (true) {
-        printf("hi\n");
+        uint32_t start_time = sys_millis();
+
         /*
         take_lock(&lock1);
         printf("hello from process %d\n", get_current_pid());
         release_lock(&lock1);
         */
 
-        for (int i = 0; i < 1000; i++) {
-            asm("nop");
+        uint32_t now_time = sys_millis();
+        while (now_time < start_time + 1000) {
+            now_time = sys_millis();
         }
 
         // printf("blinking red LED\n");
@@ -42,16 +44,14 @@ void fn_process_1() {
 
 // trigger green led
 void fn_process_2() {
-    sys_toggle_green();
-
     while (true) {
-        short start_time = sys_micros();
-        for (int i = 0; i < 1000; i++) {
-            asm("nop");
-        }
-        short end_time = sys_micros();
+        uint32_t start_time = sys_millis();
+        uint32_t now_time = sys_millis();
 
-        printf("Loop took: %u\n", end_time - start_time);
+        printf("hello world!\n");
+        while (now_time < start_time + 1000) {
+            now_time = sys_millis();
+        }
 
         sys_toggle_green();
     }

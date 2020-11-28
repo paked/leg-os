@@ -571,7 +571,7 @@ void kernel_main(void) {
     TIM7->ARR = 0xFFFF;
     // set prescaler value
     // 48 = 48,000,000 / 1,000,000
-    TIM7->PSC = 48;
+    TIM7->PSC = 48000;
 
     // enable counter
     TIM7->CR1 |= TIM_CR1_CEN_Msk;
@@ -683,15 +683,17 @@ void SysTick_Handler(void) {
 }
 
 struct profiler_control {
-    short overflow;
+    unsigned short overflow;
     //TODO(obi) add profiler storage.
 };
 
 struct profiler_control profiler;
 
 void TIM7_IRQHandler(void) {
+    printk("overflow\n");
+
     TIM7->SR &= ~1;
-    profiler.overflow++; //this bad boy overflows
+    profiler.overflow++; // this bad boy overflows
 }
 
 void SVC_Handler_C(size_t *sp) {
@@ -712,8 +714,8 @@ void SVC_Handler_C(size_t *sp) {
         putchar(r0);
         break;
     case SYSCALL_MICROS:
-        sp[0] = TIM7->CNT;
-        sp[0] = (profiler.overflow << sizeof(short)) + sp[0];
+        sp[0] = TIM7->CNT + profiler.overflow*0xFFFF;
+
         break;
     default:
         printk("ERROR: unknown syscall %d\n", svc);
