@@ -463,7 +463,7 @@ void protect_memory() {
         MPU->RNR |= i;
 
         MPU->RBAR &= ~MPU_RBAR_ADDR_Msk;
-        MPU->RBAR |= (uint32_t)heap_start + PAGE_SIZE * (region - 2);
+        MPU->RBAR |= (uint32_t) &_sstack + region_size * i;
 
         MPU->RASR &= ~MPU_RASR_SIZE_Msk;
         MPU->RASR |= region_rasr_size << MPU_RASR_SIZE_Pos;

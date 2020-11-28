@@ -23,6 +23,7 @@ int user_putchar(int c) {
 // trigger red led
 void fn_process_1() {
     while (true) {
+        printf("hi\n");
         /*
         take_lock(&lock1);
         printf("hello from process %d\n", get_current_pid());
