@@ -1,5 +1,6 @@
 #pragma once
 
-extern int sys_toggle_red();
-extern int sys_toggle_green();
-extern int sys_putchar(char c);
+extern void sys_toggle_red();
+extern void sys_toggle_green();
+extern void sys_putchar(char c);
+extern short sys_micros();

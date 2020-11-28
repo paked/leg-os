@@ -49,7 +49,7 @@ extern uint32_t end;
 
 extern uint32_t __ldrex(void *addr);
 extern bool __strex(void *addr, uint32_t val);
-extern void parasite_process(char* sp, void (*handler)(void));
+extern void parasite_process(char *sp, void (*handler)(void));
 
 #define STACK_SIZE ((&_estack - &_sstack) * sizeof(uint32_t))
 #define HEAP_SIZE (96000 - STACK_SIZE)
@@ -62,6 +62,7 @@ enum {
     SYSCALL_TOGGLE_RED,
     SYSCALL_TOGGLE_GREEN,
     SYSCALL_PUTCHAR,
+    SYSCALL_MICROS,
 };
 
 void *memset(void *s, int c, size_t len) {
@@ -139,7 +140,7 @@ struct registers {
 struct process {
     uint32_t pid;
 
-    uint32_t* stack_top;
+    uint32_t *stack_top;
     void (*handler)(void);
 
     struct registers registers;
@@ -174,7 +175,7 @@ void mem_init() {
 
     // we need some page-aligned space at the start of the heap to store out
     // page metadata
-    pages_metadata_count = (pages_count*sizeof(struct page))/PAGE_SIZE + 1;
+    pages_metadata_count = (pages_count * sizeof(struct page)) / PAGE_SIZE + 1;
     pages_count -= pages_metadata_count;
 
     // clear page metadata to zero
@@ -185,7 +186,7 @@ void mem_init() {
         pages[i].i = i;
     }
 
-    heap_start = (char*) &end + PAGE_SIZE;
+    heap_start = (char *)((uint32_t)(&end) + PAGE_SIZE);
 }
 
 void mem_print_page_info() {
@@ -395,7 +396,7 @@ int create_process(void (*handler)(void)) {
             // process_1_stack[spi + 3] = 0x0;                     // r3
             // process_1_stack[spi + 4] = 0x0;                     // r12
             stack_address[spi + 5] = (uint32_t)&process_quit; // lr
-            stack_address[spi + 6] = (uint32_t)handler;          // pc
+            stack_address[spi + 6] = (uint32_t)handler;       // pc
             stack_address[spi + 7] = 0x01000000;              // xpsr
 
             //register the process with the scheduler.
@@ -462,7 +463,7 @@ void protect_memory() {
         MPU->RNR |= i;
 
         MPU->RBAR &= ~MPU_RBAR_ADDR_Msk;
-        MPU->RBAR |= (uint32_t) &_sstack + region_size * i;
+        MPU->RBAR |= (uint32_t)heap_start + PAGE_SIZE * (region - 2);
 
         MPU->RASR &= ~MPU_RASR_SIZE_Msk;
         MPU->RASR |= region_rasr_size << MPU_RASR_SIZE_Pos;
@@ -510,8 +511,8 @@ void scheduler_start() {
     // NOTE(harrison): if we ever want to use the system stack again, we should
     // handle this better.
     parasite_process(
-            (char*) (process_current->stack_top + PROCESS_STACK_SIZE),
-            process_current->handler);
+        (char *)(process_current->stack_top + PROCESS_STACK_SIZE),
+        process_current->handler);
 }
 
 void kernel_main(void) {
@@ -553,6 +554,27 @@ void kernel_main(void) {
 
     ctrl &= ~CONTROL_SPSEL_Msk;
     ctrl |= CONTROL_SPSEL_Msk; // use different stacks for main and not main process
+
+    //
+    // Timer Setup
+    //
+    // enable nvic interrupt
+    NVIC->ISER[1] |= 1 << (55 - 32);
+
+    // enable clock
+    RCC->APB1ENR1 |= RCC_APB1ENR1_TIM7EN_Msk;
+
+    // enable tim7 interrupt
+    TIM7->DIER |= TIM_DIER_UIE_Msk;
+
+    // set auto reload value
+    TIM7->ARR = 0xFFFF;
+    // set prescaler value
+    // 48 = 48,000,000 / 1,000,000
+    TIM7->PSC = 48;
+
+    // enable counter
+    TIM7->CR1 |= TIM_CR1_CEN_Msk;
 
     //
     // MPU Setup
@@ -660,25 +682,41 @@ void SysTick_Handler(void) {
     // do nothing as no tasks are running
 }
 
-void SVC_Handler_C(size_t* sp) {
-    char r0 = (char) sp[0];
-    char* pc = (char*) sp[6];
+struct profiler_control {
+    short overflow;
+    //TODO(obi) add profiler storage.
+};
+
+struct profiler_control profiler;
+
+void TIM7_IRQHandler(void) {
+    TIM7->SR &= ~1;
+    profiler.overflow++; //this bad boy overflows
+}
+
+void SVC_Handler_C(size_t *sp) {
+    char r0 = (char)sp[0];
+    char *pc = (char *)sp[6];
 
     uint8_t svc = *(pc - 2);
 
     switch (svc) {
-        case SYSCALL_TOGGLE_RED:
-            GPIOB->ODR ^= GPIO_ODR_OD2;
+    case SYSCALL_TOGGLE_RED:
+        GPIOB->ODR ^= GPIO_ODR_OD2;
 
-            break;
-        case SYSCALL_TOGGLE_GREEN:
-            GPIOE->ODR ^= GPIO_ODR_OD8;
-            break;
-        case SYSCALL_PUTCHAR:
-            putchar(r0);
-            break;
-        default:
-            printk("ERROR: unknown syscall %d\n", svc);
+        break;
+    case SYSCALL_TOGGLE_GREEN:
+        GPIOE->ODR ^= GPIO_ODR_OD8;
+        break;
+    case SYSCALL_PUTCHAR:
+        putchar(r0);
+        break;
+    case SYSCALL_MICROS:
+        sp[0] = TIM7->CNT;
+        sp[0] = (profiler.overflow << sizeof(short)) + sp[0];
+        break;
+    default:
+        printk("ERROR: unknown syscall %d\n", svc);
     }
 }
 
@@ -690,12 +728,12 @@ void USART2_IRQHandler(void) {
 void MemManage_Handler(void) {
     printk("can't access memory address: 0x%x\n", SCB->MMFAR);
 
-    while (true);
+    while (true) {}
 }
 
 void HardFault_Handler(void) {
     // DUMP_REGS;
     printk("Hard Fault - Possibly Unrecoverable :(\n");
 
-    while (true);
+    while (true) {}
 }

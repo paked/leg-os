@@ -30,11 +30,11 @@ void fn_process_1() {
         release_lock(&lock1);
         */
 
-        for (int i = 0; i < 1000000; i++) {
+        for (int i = 0; i < 1000; i++) {
             asm("nop");
         }
 
-        printf("blinking red LED\n");
+        // printf("blinking red LED\n");
 
         sys_toggle_red();
     }
@@ -45,9 +45,13 @@ void fn_process_2() {
     sys_toggle_green();
 
     while (true) {
-        for (int i = 0; i < 1000000; i++) {
+        short start_time = sys_micros();
+        for (int i = 0; i < 1000; i++) {
             asm("nop");
         }
+        short end_time = sys_micros();
+
+        printf("Loop took: %u\n", end_time - start_time);
 
         sys_toggle_green();
     }

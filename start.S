@@ -500,7 +500,7 @@ SVC_Handler:
   bl SVC_Handler_C
 
   pop {lr}
-
+  
   bx lr
 .size SVC_Handler, .-SVC_Handler
 
