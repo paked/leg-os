@@ -1,10 +1,6 @@
 #include "user/user.h"
 #include "user/syscall.h"
 
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
-
 int user_putchar(int c);
 
 #define SIMPLE_PRINTF_PUTCHAR user_putchar

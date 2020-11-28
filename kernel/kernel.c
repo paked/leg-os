@@ -1,6 +1,4 @@
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
+#include "leg-os.h"
 
 #include "kernel/lib/stm32l476xx.h"
 
