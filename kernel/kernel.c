@@ -2,9 +2,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "stm32l476xx.h"
+#include "kernel/lib/stm32l476xx.h"
 
-#include "user.h"
+#include "user/user.h"
 
 #define USART_TTY USART2
 // TODO(harrison): should we make this disable int  errupts whien it sends the bits?

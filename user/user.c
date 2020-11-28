@@ -1,6 +1,5 @@
-#include "user.h"
-
-#include "syscall.h"
+#include "user/user.h"
+#include "user/syscall.h"
 
 #include <stdbool.h>
 #include <stddef.h>
