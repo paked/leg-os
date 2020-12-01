@@ -5,6 +5,7 @@
 #include "user/user.h"
 
 #define USART_TTY USART2
+
 // TODO(harrison): should we make this disable int  errupts whien it sends the bits?
 int putchar(int c) {
     // will need a lock on the usart port
@@ -12,6 +13,7 @@ int putchar(int c) {
     if (c == '\n') {
         putchar('\r');
     }
+
     while (!(USART_TTY->ISR & USART_ISR_TC)) {}
 
     USART_TTY->TDR = (USART_TTY->TDR & ~USART_TDR_TDR_Msk) | (uint32_t)(c);
@@ -19,12 +21,21 @@ int putchar(int c) {
     return 0;
 }
 
+uint32_t printf_write(char *buf, uint32_t len) {
+	int i = 0;
+	for (; i < len; i++) {
+		putchar(buf[i]);
+	}
+
+	return i;
+}
+
 #define SIMPLE_PRINTF_PUTCHAR putchar
 
+/*
 // #define TEST // define if testing usart printing
 #include "printf.h"
-
-#define printk simple_printf
+*/
 
 #define DUMP_REGS                                        \
     uint32_t *stack_pointer;                             \
@@ -48,6 +59,11 @@ extern uint32_t end;
 extern uint32_t __ldrex(void *addr);
 extern bool __strex(void *addr, uint32_t val);
 extern void parasite_process(char *sp, void (*handler)(void));
+
+#define XPRINTF_IMPLEMENTATION
+#include "xprintf.h"
+
+#define printk(fmt, ...) xprintf(&printf_write, fmt, ##__VA_ARGS__)
 
 #define STACK_SIZE ((&_estack - &_sstack) * sizeof(uint32_t))
 #define HEAP_SIZE (96000 - STACK_SIZE)
@@ -635,6 +651,9 @@ void kernel_main(void) {
 
     // HardFault_Handler();
 #endif
+    xprintf(&printf_write, "hi %u %%\n", 1234);
+    xprintf(&printf_write, "hi %d\n", 2048);
+
     printk("Booting leg-os kernel.\n");
 
     create_process(&fn_process_1);
@@ -680,18 +699,10 @@ void SysTick_Handler(void) {
     // do nothing as no tasks are running
 }
 
-struct profiler_control {
-    unsigned short overflow;
-    //TODO(obi) add profiler storage.
-};
-
-struct profiler_control profiler;
-
 void TIM7_IRQHandler(void) {
-    printk("overflow\n");
+    // printk("overflow\n");
 
     TIM7->SR &= ~1;
-    profiler.overflow++; // this bad boy overflows
 }
 
 void SVC_Handler_C(size_t *sp) {
@@ -712,7 +723,7 @@ void SVC_Handler_C(size_t *sp) {
         putchar(r0);
         break;
     case SYSCALL_MICROS:
-        sp[0] = TIM7->CNT + profiler.overflow*0xFFFF;
+        sp[0] = TIM7->CNT; // + profiler.overflow*0xFFFF;
 
         break;
     default:

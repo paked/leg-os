@@ -1,10 +1,11 @@
 #include "user/user.h"
 #include "user/syscall.h"
 
-int user_putchar(int c);
+#define printf(fmt, ...) xprintf(&user_write, fmt, ##__VA_ARGS__)
+#include "xprintf.h"
 
-#define SIMPLE_PRINTF_PUTCHAR user_putchar
-#include "printf.h"
+#define BEFORE(a, period) (sys_millis() - a < period)
+
 
 int user_putchar(int c) {
     if (c == '\n') {
@@ -14,6 +15,15 @@ int user_putchar(int c) {
     sys_putchar(c);
 
     return 0;
+}
+
+uint32_t user_write(char *buf, uint32_t len) {
+	int i = 0;
+	for (; i < len; i++) {
+		user_putchar(buf[i]);
+	}
+
+	return i;
 }
 
 // trigger red led
@@ -27,10 +37,8 @@ void fn_process_1() {
         release_lock(&lock1);
         */
 
-        uint32_t now_time = sys_millis();
-        while (now_time < start_time + 1000) {
-            now_time = sys_millis();
-        }
+        uint32_t period = 1000;
+        while (BEFORE(start_time, period));
 
         // printf("blinking red LED\n");
 
@@ -42,12 +50,9 @@ void fn_process_1() {
 void fn_process_2() {
     while (true) {
         uint32_t start_time = sys_millis();
-        uint32_t now_time = sys_millis();
 
         printf("hello world!\n");
-        while (now_time < start_time + 1000) {
-            now_time = sys_millis();
-        }
+        while (BEFORE(start_time, 1000));
 
         sys_toggle_green();
     }
